@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.7;
+pragma solidity ^0.8.9;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
+import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 
 contract Company is ERC20 {
-    address private owner;
-    mapping(address => uint256) private tokenBalances;
+    address public owner;
+    address[] public shareHolders;
 
     event NewOwner(address indexed newOwner);
 
@@ -25,10 +26,6 @@ contract Company is ERC20 {
 
     function decimals() public pure override returns (uint8) {
         return 0;
-    }
-
-    function getOwner() external view returns (address) {
-        return owner;
     }
 
     function changeOwner(address newOwner) external isOwner {
@@ -52,11 +49,14 @@ contract Company is ERC20 {
     // Fallback function is called when msg.data is not empty
     fallback() external payable {}
 
-    function getEtherBalance() external view returns (uint256) {
+    function getWeiBalance() external view returns (uint256) {
         return address(this).balance;
     }
 
-    function getTokenBalance(address ierc20Address) external view returns (uint256) {
-        return tokenBalances[ierc20Address];
+    function getTokenBalance(address tokenAddress) external view returns (uint256) {
+        IERC20 token = IERC20(tokenAddress);
+        return token.balanceOf(address(this));
     }
+
+    //TODO distribute ether and ERC20
 }
