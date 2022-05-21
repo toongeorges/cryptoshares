@@ -41,6 +41,7 @@ struct OrderBook {
 contract Market {
     address[] public listedTokens; //listed ERC20 tokens
     mapping(address => OrderBook) public orderbook;
+    mapping(address => uint256) private weiBalance;
 
     event Ask(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency, uint256 price);
     event Bid(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency, uint256 price);
@@ -52,7 +53,26 @@ contract Market {
     event ExecuteBid(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency);
     event Trade(address indexed asset, uint256 amount, address indexed currency, uint256 price);
 
-    function isValidOwner(address owner) public view virtual returns (bool) { //overridable method to allow for checking if shareholders can receive ether/ERC20 tokens
-        return true;
+    //used to receive wei when msg.data is empty
+    receive() external payable {
+        handleWeiPayment(msg.sender, msg.value);
+    }
+
+    //used to receive wei when msg.data is not empty
+    fallback() external payable {
+        handleWeiPayment(msg.sender, msg.value);
+    }
+
+    function verifyWeiBalance(address owner) public view returns (uint256) {
+        return weiBalance[owner];
+    }
+
+    function verifyTokenBalance(address owner, address erc20Token) public view returns (uint256) {
+        IERC20 token = IERC20(erc20Token);
+        return token.allowance(owner, address(this));
+    }
+
+    function handleWeiPayment(address msgSender, uint256 amount) internal {
+        weiBalance[msgSender] += amount;
     }
 }

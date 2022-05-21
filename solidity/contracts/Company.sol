@@ -43,10 +43,10 @@ contract Company is ERC20 {
         _burn(address(this), numberOfShares); //burned amount is stored in Transfer event to address 0
     }
 
-    // Function to receive Ether. msg.data must be empty
+    //used to receive wei when msg.data is empty
     receive() external payable {}
 
-    // Fallback function is called when msg.data is not empty
+    //used to receive wei when msg.data is not empty
     fallback() external payable {}
 
     function getWeiBalance() external view returns (uint256) {
