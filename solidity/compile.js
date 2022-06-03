@@ -4,10 +4,10 @@ const solc = require('solc');
  
 const testTokenPath = path.resolve(__dirname, 'contracts', 'TestGold.sol');
 const testTokenSource = fs.readFileSync(testTokenPath, 'utf8');
-const marketPath = path.resolve(__dirname, 'contracts', 'Market.sol');
-const marketSource = fs.readFileSync(marketPath, 'utf8');
-const companyPath = path.resolve(__dirname, 'contracts', 'Company.sol');
-const companySource = fs.readFileSync(companyPath, 'utf8');
+const exchangePath = path.resolve(__dirname, 'contracts', 'Exchange.sol');
+const exchangeSource = fs.readFileSync(exchangePath, 'utf8');
+const sharePath = path.resolve(__dirname, 'contracts', 'Share.sol');
+const shareSource = fs.readFileSync(sharePath, 'utf8');
  
 const input = { //compiler input description
   language: 'Solidity',
@@ -15,11 +15,11 @@ const input = { //compiler input description
     'TestGold.sol': {
       content: testTokenSource,
     },
-    'Market.sol': {
-      content: marketSource,
+    'Exchange.sol': {
+      content: exchangeSource,
     },
-    'Company.sol': {
-      content: companySource,
+    'Share.sol': {
+      content: shareSource,
     },
   },
   settings: {
@@ -41,7 +41,7 @@ let compilation = solc.compile(JSON.stringify(input), { import: findImports });
 let allContracts = JSON.parse(compilation).contracts;
 let contracts = {};
 contracts.TestGold = allContracts['TestGold.sol'].TestGold;
-contracts.Market = allContracts['Market.sol'].Market;
-contracts.Company = allContracts['Company.sol'].Company;
+contracts.Exchange = allContracts['Exchange.sol'].Exchange;
+contracts.Share = allContracts['Share.sol'].Share;
 
 module.exports = contracts;

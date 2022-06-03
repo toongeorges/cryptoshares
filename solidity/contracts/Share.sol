@@ -6,7 +6,10 @@ import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 
-contract Company is ERC20 {
+contract Share is ERC20 {
+    //use enum do define action
+    //zet stemmen vast
+    //scrutineer en share contract samen
     address public owner;
     address[] public shareHolders;
 

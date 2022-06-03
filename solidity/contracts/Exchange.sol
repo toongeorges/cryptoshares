@@ -38,7 +38,7 @@ struct OrderBook {
 }
 
 
-contract Market {
+contract Exchange {
     address[] public listedTokens; //listed ERC20 tokens
     mapping(address => OrderBook) public orderbook;
     mapping(address => uint256) private weiBalance;
