@@ -33,29 +33,44 @@ describe('Share creation', () => {
     assert.ok(testGold.options.address);
     assert.ok(share.options.address);
   });
+  it('can not accept native ether payments', async () => {
+    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: share.options.address, value: 200 })); //msg.data is empty, test receive()
+    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: share.options.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
+  });
   it('has expected initial values', async () => {
     const name = await share.methods.name().call();
     const symbol = await share.methods.symbol().call();
     const decimals = await share.methods.decimals().call();
     const numberOfShares = await share.methods.totalSupply().call();
-    const weiBalance = await share.methods.getWeiBalance().call();
+    const owner = await share.methods.owner().call();
+    const numberOfShareHolders = await share.methods.shareHolderCount().call();
+    const decisionParameters = await share.methods.decisionParameters().call();
 
     assert.equal(name, 'The Blockchain Company');
     assert.equal(symbol, 'TBC');
     assert.equal(decimals, 0);
     assert.equal(numberOfShares, 10000);
-    assert.equal(weiBalance, 0);
+    assert.equal(owner, accounts[0]);
+    assert.equal(decisionParameters.decisionTime, 60*60*24*30);
+    assert.equal(decisionParameters.executionTime, 60*60*24*7);
+    assert.equal(decisionParameters.quorumNumerator, 0);
+    assert.equal(decisionParameters.quorumDenominator, 1);
+    assert.equal(decisionParameters.majorityNumerator, 1);
+    assert.equal(decisionParameters.majorityDenominator, 2);
+    assert.equal(numberOfShareHolders, 0);
   });
+
+  /*
   it('sets the right owner', async () => {
     const originalOwner = await share.methods.owner().call();
-    assert.rejects(async () => { //test if accounts[1] cannot change the owner
-      await share.methods.changeOwner(accounts[1]).send({ from: accounts[1] });
-    });
+    await assert.rejects( //test if accounts[1] cannot change the owner
+      share.methods.changeOwner(accounts[1]).send({ from: accounts[1] })
+    );
     await share.methods.changeOwner(accounts[1]).send({ from: accounts[0] });
     const newOwner = await share.methods.owner().call();
-    assert.rejects(async () => { //test if accounts[0] cannot change the owner
-      await share.methods.changeOwner(accounts[0]).send({ from: accounts[0] });
-    });
+    await assert.rejects( //test if accounts[0] cannot change the owner
+      share.methods.changeOwner(accounts[0]).send({ from: accounts[0] })
+    );
 
     assert.equal(originalOwner, accounts[0]);
     assert.equal(newOwner, accounts[1]);
@@ -63,18 +78,18 @@ describe('Share creation', () => {
   it('can issue shares', async () => {
     await share.methods.issueShares(2000).send({ from: accounts[0] });
     const numberOfShares = await share.methods.totalSupply().call();
-    assert.rejects(async () => { //test if accounts[1] cannot change the number of shares
-      await share.methods.issueShares(3000).send({ from: accounts[1] });
-    });
+    await assert.rejects( //test if accounts[1] cannot change the number of shares
+      share.methods.issueShares(3000).send({ from: accounts[1] })
+    );
 
     assert.equal(numberOfShares, 12000);
   });
   it('can burn shares', async () => {
     await share.methods.burnShares(2000).send({ from: accounts[0] });
     const numberOfShares = await share.methods.totalSupply().call();
-    assert.rejects(async () => { //test if accounts[1] cannot change the number of shares
-      await share.methods.burnShares(3000).send({ from: accounts[1] });
-    });
+    await assert.rejects( //test if accounts[1] cannot change the number of shares
+      share.methods.burnShares(3000).send({ from: accounts[1] })
+    );
 
     assert.equal(numberOfShares, 8000);
   });
@@ -110,4 +125,5 @@ describe('Share creation', () => {
     assert.equal(initialOwnedShares, 10000);
     assert.equal(finalOwnedGold, 200);
   });
+  */
 });

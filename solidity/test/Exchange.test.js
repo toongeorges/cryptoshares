@@ -33,16 +33,9 @@ describe('Exchange creation', () => {
     assert.ok(testGold.options.address);
     assert.ok(exchange.options.address);
   });
-  it('can accept ether payments', async () => {
-    let initialBalance = await exchange.methods.verifyWeiBalance(accounts[1]).call();
-    await web3.eth.sendTransaction({ from: accounts[1], to: exchange.options.address, value: 200 }); //msg.data is empty, test receive()
-    let balanceAfterFirstTransfer = await exchange.methods.verifyWeiBalance(accounts[1]).call();
-    await web3.eth.sendTransaction({ from: accounts[1], to: exchange.options.address, value: 300, data: '0xABCDEF01' }); //msg.data is not empty, test fallback()
-    let balanceAfterSecondTransfer = await exchange.methods.verifyWeiBalance(accounts[1]).call();
-
-    assert.equal(initialBalance, 0);
-    assert.equal(balanceAfterFirstTransfer, 200);
-    assert.equal(balanceAfterSecondTransfer, 500);
+  it('can not accept native ether payments', async () => {
+    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: exchange.options.address, value: 200 })); //msg.data is empty, test receive()
+    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: exchange.options.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
   });
   it('can accept ERC20 allowances', async() => {
     await testGold.methods.transfer(accounts[1], 500).send({ from: accounts[0] });

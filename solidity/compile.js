@@ -4,10 +4,10 @@ const solc = require('solc');
  
 const testTokenPath = path.resolve(__dirname, 'contracts', 'TestGold.sol');
 const testTokenSource = fs.readFileSync(testTokenPath, 'utf8');
-const exchangePath = path.resolve(__dirname, 'contracts', 'Exchange.sol');
-const exchangeSource = fs.readFileSync(exchangePath, 'utf8');
 const sharePath = path.resolve(__dirname, 'contracts', 'Share.sol');
 const shareSource = fs.readFileSync(sharePath, 'utf8');
+const exchangePath = path.resolve(__dirname, 'contracts', 'Exchange.sol');
+const exchangeSource = fs.readFileSync(exchangePath, 'utf8');
  
 const input = { //compiler input description
   language: 'Solidity',
@@ -15,11 +15,11 @@ const input = { //compiler input description
     'TestGold.sol': {
       content: testTokenSource,
     },
-    'Exchange.sol': {
-      content: exchangeSource,
-    },
     'Share.sol': {
       content: shareSource,
+    },
+    'Exchange.sol': {
+      content: exchangeSource,
     },
   },
   settings: {
@@ -38,10 +38,15 @@ function findImports(relativePath) { //how to deal with imports of external cont
 }
 
 let compilation = solc.compile(JSON.stringify(input), { import: findImports });
-let allContracts = JSON.parse(compilation).contracts;
+let parsed = JSON.parse(compilation);
 let contracts = {};
-contracts.TestGold = allContracts['TestGold.sol'].TestGold;
-contracts.Exchange = allContracts['Exchange.sol'].Exchange;
-contracts.Share = allContracts['Share.sol'].Share;
+if (parsed.errors) {
+  console.log(parsed.errors)
+} else {
+  let allContracts = parsed.contracts;
+  contracts.TestGold = allContracts['TestGold.sol'].TestGold;
+  contracts.Share = allContracts['Share.sol'].Share;
+  contracts.Exchange = allContracts['Exchange.sol'].Exchange;
+}
 
 module.exports = contracts;

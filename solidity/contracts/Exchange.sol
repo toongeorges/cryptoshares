@@ -41,7 +41,6 @@ struct OrderBook {
 contract Exchange {
     address[] public listedTokens; //listed ERC20 tokens
     mapping(address => OrderBook) public orderbook;
-    mapping(address => uint256) private weiBalance;
 
     event Ask(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency, uint256 price);
     event Bid(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency, uint256 price);
@@ -53,26 +52,16 @@ contract Exchange {
     event ExecuteBid(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency);
     event Trade(address indexed asset, uint256 amount, address indexed currency, uint256 price);
 
-    //used to receive wei when msg.data is empty
-    receive() external payable {
-        handleWeiPayment(msg.sender, msg.value);
+    receive() external payable { //used to receive wei when msg.data is empty
+        revert("Payments need to happen through wrapped Ether"); //as long as Ether is not ERC20 compliant
     }
-
-    //used to receive wei when msg.data is not empty
-    fallback() external payable {
-        handleWeiPayment(msg.sender, msg.value);
-    }
-
-    function verifyWeiBalance(address owner) public view returns (uint256) {
-        return weiBalance[owner];
+    
+    fallback() external payable { //used to receive wei when msg.data is not empty
+        revert("Payments need to happen through wrapped Ether"); //as long as Ether is not ERC20 compliant
     }
 
     function verifyTokenBalance(address owner, address erc20Token) public view returns (uint256) {
         IERC20 token = IERC20(erc20Token);
         return token.allowance(owner, address(this));
-    }
-
-    function handleWeiPayment(address msgSender, uint256 amount) internal {
-        weiBalance[msgSender] += amount;
     }
 }
