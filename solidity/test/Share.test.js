@@ -25,8 +25,7 @@ beforeEach(async () => {
       data: contracts.Share.evm.bytecode.object,
       arguments: ['The Blockchain Company', 'TBC', 10000],
     })
-    .send({ from: accounts[0], gas: '3000000' });
-});
+    .send({ from: accounts[0], gas: '5000000' });
  
 describe('Share creation', () => {
   it('deploys a contract', () => {
