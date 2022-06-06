@@ -32,9 +32,15 @@ const input = { //compiler input description
 };
 
 function findImports(relativePath) { //how to deal with imports of external contracts, see https://github.com/ethereum/solc-js
-  const absolutePath = path.resolve(__dirname, 'node_modules', relativePath);
-  const source = fs.readFileSync(absolutePath, 'utf8');
-  return { contents: source };
+  if (relativePath.startsWith('contracts/')) {
+    const absolutePath = path.resolve(__dirname, relativePath);
+    const source = fs.readFileSync(absolutePath, 'utf8');
+    return { contents: source };
+  } else {
+    const absolutePath = path.resolve(__dirname, 'node_modules', relativePath);
+    const source = fs.readFileSync(absolutePath, 'utf8');
+    return { contents: source };
+  }
 }
 
 let compilation = solc.compile(JSON.stringify(input), { import: findImports });

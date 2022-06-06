@@ -5,6 +5,7 @@ pragma solidity ^0.8.9;
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import 'contracts/IExchange.sol';
 
 enum VoteType {
     NO_VOTE, IN_FAVOR, AGAINST, ABSTAIN
@@ -48,14 +49,15 @@ struct Vote {
 }
 
 struct VoteParameters {
-    uint256 startTime;
+    uint128 startTime;
+    VoteResult result; //pack together with startTime
+
     DecisionParameters decisionParameters; //store this on creation, so it cannot be changed afterwards
 
     mapping(address => uint256) lastVote; //shareHolders can vote as much as they want, but only their last vote counts (if they still hold shares at the moment the votes are counted).
     uint256 numberOfVotes;
     Vote[] votes;
 
-    VoteResult result;
     uint256 inFavor;
     uint256 against;
     uint256 abstain;
@@ -64,25 +66,27 @@ struct VoteParameters {
 
 struct NewOwnerActionData {
     VoteParameters voteParameters;
+
     address newOwner;
 }
 
 struct DecisionActionData {
     VoteParameters voteParameters;
+
     DecisionActionType actionType;
     DecisionParameters proposedParameters;
 }
 
-struct CurrencyAmount {
-    address currency; //ERC20 token
-    uint256 amount;
-}
-
 struct CorporateActionData {
     VoteParameters voteParameters;
+
     CorporateActionType actionType;
-    uint256 numberOfShares; //resulting number of shares if ISSUE_SHARES or DESTROY_SHARES approved, number of shares to sell or buy for RAISE_FUNDS and BUY_BACK and number of shares receiving dividend for DISTRIBUTE_DIVIDEND
-    CurrencyAmount[] pricePerShare; //empty for ISSUE_SHARES and DESTROY_SHARES, a single value for RAISE_FUNDS and BUY_BACK, one or more values (in the case of an optional dividend) for DISTRIBUTE_DIVIDEND
+    address exchange; //only relevant for RAISE_FUNDS and BUY_BACK, pack together with actionType
+    uint256 numberOfShares; //the number of shares created or destroyed for ISSUE_SHARES or DESTROY_SHARES, the number of shares to sell or buy back for RAISE_FUNDS and BUY_BACK and the number of shares receiving dividend for DISTRIBUTE_DIVIDEND
+    address currency; //ERC20 token
+    uint256 currencyAmount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount of dividend to be distributed per share for DISTRIBUTE_DIVIDEND
+    address optionalCurrency; //ERC20 token
+    uint256 optionalCurrencyAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
 }
 
 contract Share is ERC20 {
@@ -111,10 +115,52 @@ contract Share is ERC20 {
     mapping(uint256 => DecisionActionData) private decisionActions;
     uint256 public corporateActionId;
     mapping(uint256 => CorporateActionData) private corporateActions;
+    uint256 public externalProposalId;
+    mapping(uint256 => VoteParameters) private externalProposals;
 
     modifier isOwner() {
         require(msg.sender == owner);
         _;
+    }
+
+    modifier proceedOnVoteResultUpdate(VoteParameters storage vP) {
+        if (vP.result == VoteResult.PENDING) { //otherwise, the result is already known, no new processing required
+            VotingStage votingStage = getVotingStage(vP);
+            if ((votingStage != VotingStage.VOTING_IN_PROGRESS) || !changesRequireApproval()) { //voting has ended
+                if (votingStage == VotingStage.EXECUTION_HAS_ENDED) {
+                    vP.result = VoteResult.EXPIRED;
+                } else if(!changesRequireApproval()) { //if for some reason all shares have been bought back
+                    vP.result = VoteResult.APPROVED;
+                } else {
+                    (vP.inFavor, vP.against, vP.abstain, vP.noVote) = countVotes(vP);
+                    vP.result = verifyVotes(vP);
+                }
+                _;
+            } else {
+                revert("voting still in progress");
+            }
+        }
+    }
+
+    modifier proceedOnWithdrawal(VoteParameters storage vP) {
+        if (vP.result == VoteResult.PENDING) { //can only withdraw if the result is still pending
+            VotingStage votingStage = getVotingStage(vP);
+            if (votingStage == VotingStage.EXECUTION_HAS_ENDED) { //cannot withdraw anymore
+                vP.result = VoteResult.EXPIRED;
+            } else {
+                vP.result = VoteResult.WITHDRAWN;
+            }
+            _;
+        }
+    }
+
+    modifier proceedOnRequest(VoteParameters storage vP) {
+        if (vP.result != VoteResult.PENDING) {
+            initVoteParameters(vP);
+            _;
+        } else {
+            revert("cannot initiate a new request while an old request is still pending");
+        }
     }
 
     constructor(string memory name, string memory symbol, uint256 numberOfShares) ERC20(name, symbol) {
@@ -164,6 +210,17 @@ contract Share is ERC20 {
 
         shareHolderCount = packedIndex;
         shareHolders = packed;
+
+        if (packedIndex == 0) { //changes do not require approval anymore, resolve all pending votes
+            NewOwnerActionData storage newOwnerActionData = newOwnerActions[newOwnerId];
+            doChangeOwnerOnApproval(newOwnerId, newOwnerActionData, newOwnerActionData.voteParameters);
+
+            DecisionActionData storage decisionActionData = decisionActions[decisionId];
+            doChangeDecisionParametersOnApproval(decisionId, decisionActionData, decisionActionData.voteParameters);
+
+            //TODO resolve corporate action vote
+            //TODO resolve multiple! external proposal votes
+        }
     }
 
     function getFinalDecisionTime(ActionType actionType, uint256 id) external view returns (uint256) {
@@ -197,14 +254,14 @@ contract Share is ERC20 {
         return decisionActions[id].proposedParameters;
     }
 
-    function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, CurrencyAmount[] memory) {
+    function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, address, uint256, address, uint256, address, uint256) {
         CorporateActionData storage actionData = corporateActions[id];
-        return (actionData.actionType, actionData.numberOfShares, actionData.pricePerShare);
+        return (actionData.actionType, actionData.exchange, actionData.numberOfShares, actionData.currency, actionData.currencyAmount, actionData.optionalCurrency, actionData.optionalCurrencyAmount);
     }
 
     function vote(ActionType actionType, uint256 id, VoteType decision) external {
         VoteParameters storage vP = getVoteParameters(actionType, id);
-        if ((vP.result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.VOTING_IN_PROGRESS)) { //vP.result could be e.g. WITHDRAWN
+        if ((vP.result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.VOTING_IN_PROGRESS)) { //vP.result could be e.g. WITHDRAWN while the voting stage is still in progress
             address voter = msg.sender;
             if (balanceOf(voter) > 0) { //The amount of shares of the voter is checked later, so it does not matter if the voter still sells all his shares before the vote resolution.  This check just prevents people with no shares from increasing the votes array.
                 vP.lastVote[voter] = vP.numberOfVotes;
@@ -224,43 +281,38 @@ contract Share is ERC20 {
 
             emit NewOwner(newOwnerId, owner, VoteResult.NO_OUTSTANDING_SHARES);
             newOwnerId++;
-        } else if (newOwnerActions[newOwnerId - 1].voteParameters.result != VoteResult.PENDING) { //newOwnerId > 0, since during construction of the contract newOwnerId is incremented
-            NewOwnerActionData storage actionData = newOwnerActions[newOwnerId];
-            initVoteParameters(actionData.voteParameters);
-            actionData.newOwner = newOwner;
-
-            emit RequestNewOwner(newOwnerId, owner);
-            newOwnerId++;
         } else {
-            revert("Cannot initiate a new request to change the owner while an old request is still pending");
+            doRequestChangeOwner(newOwnerActions[newOwnerId], newOwner);
         }
+    }
+
+    function doRequestChangeOwner(NewOwnerActionData storage actionData, address newOwner) internal proceedOnRequest(actionData.voteParameters) {
+        actionData.newOwner = newOwner;
+
+        emit RequestNewOwner(newOwnerId, owner);
     }
 
     function changeOwnerOnApproval(uint256 id) external {
         NewOwnerActionData storage actionData = newOwnerActions[id];
-        VoteParameters storage vP = actionData.voteParameters;
-        if (vP.result == VoteResult.PENDING) { //otherwise, the result is already known, no new processing required
-            VotingStage votingStage = getVotingStage(vP);
-            if (votingStage != VotingStage.VOTING_IN_PROGRESS) { //voting has ended
-                updateVotingResult(vP, votingStage);
+        doChangeOwnerOnApproval(id, actionData, actionData.voteParameters);
+    }
 
-                if (vP.result == VoteResult.APPROVED) {
-                    owner = actionData.newOwner;
-                }
-
-                emit NewOwner(id, actionData.newOwner, vP.result);
-            }
+    function doChangeOwnerOnApproval(uint256 id, NewOwnerActionData storage actionData, VoteParameters storage vP) internal proceedOnVoteResultUpdate(vP) {
+        if (vP.result == VoteResult.APPROVED) {
+            owner = actionData.newOwner;
         }
+
+        emit NewOwner(id, actionData.newOwner, vP.result);
+        newOwnerId++;
     }
 
     function withdrawChangeOwnerRequest(uint256 id) external isOwner {
         NewOwnerActionData storage actionData = newOwnerActions[id];
-        VoteParameters storage vP = actionData.voteParameters;
-        if (vP.result == VoteResult.PENDING) { //can only withdraw if the result is still pending
-            withdraw(vP);
+        doWithdrawChangeOwnerRequest(id, actionData, actionData.voteParameters);
+    }
 
-            emit NewOwner(id, actionData.newOwner, vP.result);
-        }
+    function doWithdrawChangeOwnerRequest(uint256 id, NewOwnerActionData storage actionData, VoteParameters storage vP) internal proceedOnWithdrawal(vP) {
+        emit NewOwner(id, actionData.newOwner, vP.result);
     }
 
     function changeDecisionTime(uint64 decisionTime, uint64 executionTime) external isOwner {
@@ -287,52 +339,124 @@ contract Share is ERC20 {
 
             emit DecisionParameterChange(decisionId, actionType, VoteResult.NO_OUTSTANDING_SHARES);
             decisionId++;
-        } else if ((decisionId == 0) || (decisionActions[decisionId - 1].voteParameters.result != VoteResult.PENDING)) {
-            DecisionActionData storage actionData = decisionActions[decisionId];
-            initVoteParameters(actionData.voteParameters);
-            actionData.actionType = actionType;
-            DecisionParameters storage proposedParameters = actionData.proposedParameters;
-            setDecisionTime(proposedParameters, decisionTime, executionTime);
-            setQuorum(proposedParameters, quorumNumerator, quorumDenominator);
-            setMajority(proposedParameters, majorityNumerator, majorityDenominator);
-
-            emit RequestDecisionParameterChange(decisionId, actionType);
-            decisionId++;
         } else {
-            revert("Cannot initiate a new request to change the decision parameters while an old request is still pending");
+            doRequestChangeDecisionParameters(decisionActions[decisionId], actionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
         }
+    }
+
+    function doRequestChangeDecisionParameters(DecisionActionData storage actionData, DecisionActionType actionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal proceedOnRequest(actionData.voteParameters) {
+        actionData.actionType = actionType;
+        DecisionParameters storage proposedParameters = actionData.proposedParameters;
+        setDecisionTime(proposedParameters, decisionTime, executionTime);
+        setQuorum(proposedParameters, quorumNumerator, quorumDenominator);
+        setMajority(proposedParameters, majorityNumerator, majorityDenominator);
+
+        emit RequestDecisionParameterChange(decisionId, actionType);
     }
 
     function changeDecisionParametersOnApproval(uint256 id) external {
         DecisionActionData storage actionData = decisionActions[id];
-        VoteParameters storage vP = actionData.voteParameters;
-        if (vP.result == VoteResult.PENDING) { //otherwise, the result is already known, no new processing required
-            VotingStage votingStage = getVotingStage(vP);
-            if (votingStage != VotingStage.VOTING_IN_PROGRESS) { //voting has ended
-                updateVotingResult(vP, votingStage);
+        doChangeDecisionParametersOnApproval(id, actionData, actionData.voteParameters);
+    }
 
-                if (vP.result == VoteResult.APPROVED) {
-                    DecisionParameters storage pP = actionData.proposedParameters;
-                    setDecisionTime(decisionParameters, pP.decisionTime, pP.executionTime);
-                    setQuorum(decisionParameters, pP.quorumNumerator, pP.quorumDenominator);
-                    setMajority(decisionParameters, pP.majorityNumerator, pP.majorityDenominator);
-                }
-
-                emit DecisionParameterChange(id, actionData.actionType, vP.result);
-            }
+    function doChangeDecisionParametersOnApproval(uint256 id, DecisionActionData storage actionData, VoteParameters storage vP) internal proceedOnVoteResultUpdate(vP) {
+        if (vP.result == VoteResult.APPROVED) {
+            DecisionParameters storage pP = actionData.proposedParameters;
+            setDecisionTime(decisionParameters, pP.decisionTime, pP.executionTime);
+            setQuorum(decisionParameters, pP.quorumNumerator, pP.quorumDenominator);
+            setMajority(decisionParameters, pP.majorityNumerator, pP.majorityDenominator);
         }
+
+        emit DecisionParameterChange(id, actionData.actionType, vP.result);
+        decisionId++;
     }
 
     function withdrawChangeDecisionParametersRequest(uint256 id) external isOwner {
         DecisionActionData storage actionData = decisionActions[id];
-        VoteParameters storage vP = actionData.voteParameters;
-        if (vP.result == VoteResult.PENDING) { //can only withdraw if the result is still pending
-            withdraw(vP);
+        doWithdrawChangeDecisionParametersRequest(id, actionData, actionData.voteParameters);
+    }
 
-            emit DecisionParameterChange(id, actionData.actionType, vP.result);
+    function doWithdrawChangeDecisionParametersRequest(uint256 id, DecisionActionData storage actionData, VoteParameters storage vP) internal proceedOnWithdrawal(vP) {
+        emit DecisionParameterChange(id, actionData.actionType, vP.result);
+    }
+
+    function issueShares(uint256 numberOfShares) external isOwner {
+        if (!changesRequireApproval()) {
+            _mint(address(this), numberOfShares);
+
+            emit CorporateAction(corporateActionId, CorporateActionType.ISSUE_SHARES, VoteResult.NO_OUTSTANDING_SHARES);
+            corporateActionId++;
+        } else {
+            doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
         }
     }
 
+    function destroyShares(uint256 numberOfShares) external isOwner {
+        if (!changesRequireApproval()) {
+            _burn(address(this), numberOfShares); //already checks if this address has enough ERC20 tokens
+
+            emit CorporateAction(corporateActionId, CorporateActionType.DESTROY_SHARES, VoteResult.NO_OUTSTANDING_SHARES);
+            corporateActionId++;
+            revert("Cannot initiate a new corporate action while an old corporate action is still pending");
+        } else {
+            require(balanceOf(address(this)) >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
+            doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+        }
+    }
+
+    function doRequestCorporateAction(CorporateActionData storage actionData, CorporateActionType actionType, uint256 numberOfShares, address exchange, address currency, uint256 currencyAmount, address optionalCurrency, uint256 optionalCurrencyAmount) internal proceedOnRequest(actionData.voteParameters) {
+        actionData.actionType = actionType;
+        actionData.numberOfShares = numberOfShares;
+        if (exchange != address(0)) { //only store the exchange address if this is relevant
+            actionData.exchange = exchange;
+        }
+        if (currency != address(0)) { //only store pricePerShare info if this is relevant
+            actionData.currency = currency;
+            actionData.currencyAmount = currencyAmount;
+        }
+        if (optionalCurrency != address(0)) { //only store optionalDividend info if this is relevant
+            actionData.optionalCurrency = optionalCurrency;
+            actionData.optionalCurrencyAmount = optionalCurrencyAmount;
+        }
+    }
+
+/*
+    function raiseFunds(uint256 numberOfShares, address exchange, address currency, uint256 amount) external isOwner {
+        if (!changesRequireApproval()) {
+            increaseAllowance(exchange, numberOfShares);
+            //TODO we have to lock up these shares, because ERC20 does not do this!
+            //TODO we also need a way of getting unsold shares back in case of a cancel, which needs another approval
+
+            emit CorporateAction(corporateActionId, CorporateActionType.RAISE_FUNDS, VoteResult.NO_OUTSTANDING_SHARES);
+            corporateActionId++;
+            revert("Cannot initiate a new corporate action while an old corporate action is still pending");
+        } else {
+            require(balanceOf(address(this)) >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
+            doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.RAISE_FUNDS, numberOfShares, exchange, currency, amount, address(0), 0);
+        }
+    }
+
+    function buyBackShares(uint256 numberOfShares, address currency, uint256 amount, address exchange) external isOwner {
+
+    }
+
+    function distributeDividend(uint256 numberOfShares, address currency, uint256 amount) external isOwner {
+
+    }
+
+    function distributeOptionalDividend(uint256 numberOfShares, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external isOwner {
+
+    }
+*/
+    //TODO initiate corporate actions
+    //TODO approve corporate actions
+    //TODO withdraw corporate actions
+
+    //TODO initiate external proposals (in parallel)
+    //TODO approve external proposals
+    //TODO withdraw external proposals
+
+    //TODO think about how a company can withdraw funds acquired e.g. through raising funds, may need approval as well!
 
 
     function setDecisionTime(DecisionParameters storage dP, uint64 decisionTime, uint64 executionTime) internal {
@@ -366,9 +490,9 @@ contract Share is ERC20 {
     }
 
     function initVoteParameters(VoteParameters storage voteParameters) internal {
-        voteParameters.startTime = block.timestamp;
-        voteParameters.decisionParameters = decisionParameters; //copy by value
+        voteParameters.startTime = uint128(block.timestamp); // 10 000 000 000 000 000 000 000 000 000 000 years is more than enough, save some storage space
         voteParameters.result = VoteResult.PENDING;
+        voteParameters.decisionParameters = decisionParameters; //copy by value
     }
 
     function getVotingStage(VoteParameters storage voteParameters) internal view returns (VotingStage) {
@@ -376,15 +500,6 @@ contract Share is ERC20 {
         return (block.timestamp <= votingCutOff) ?                                                   VotingStage.VOTING_IN_PROGRESS
              : (block.timestamp <= votingCutOff + voteParameters.decisionParameters.executionTime) ? VotingStage.VOTING_HAS_ENDED
              :                                                                                       VotingStage.EXECUTION_HAS_ENDED;
-    }
-
-    function updateVotingResult(VoteParameters storage vP, VotingStage votingStage) internal {
-        if (votingStage == VotingStage.EXECUTION_HAS_ENDED) {
-            vP.result = VoteResult.EXPIRED;
-        } else {
-            (vP.inFavor, vP.against, vP.abstain, vP.noVote) = countVotes(vP);
-            vP.result = verifyVotes(vP);
-        }
     }
 
     function countVotes(VoteParameters storage voteParameters) internal view returns (uint256, uint256, uint256, uint256) {
@@ -452,18 +567,9 @@ contract Share is ERC20 {
             }
 
             //then check low
-            present = (presentNumerator & 0xFFFFFFFF)*quorumDenominator;
-            quorum = (quorumNumerator & 0xFFFFFFFF)*presentDenominator;
+            present = uint32(presentNumerator)*quorumDenominator;
+            quorum = uint32(quorumNumerator)*presentDenominator;
             return (present >= quorum);
-        }
-    }
-
-    function withdraw(VoteParameters storage vP) internal {
-        VotingStage votingStage = getVotingStage(vP);
-        if (votingStage == VotingStage.EXECUTION_HAS_ENDED) { //cannot withdraw anymore
-            vP.result = VoteResult.EXPIRED;
-        } else {
-            vP.result = VoteResult.WITHDRAWN;
         }
     }
 
