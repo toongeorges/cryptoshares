@@ -55,7 +55,6 @@ struct VoteParameters {
     DecisionParameters decisionParameters; //store this on creation, so it cannot be changed afterwards
 
     mapping(address => uint256) lastVote; //shareHolders can vote as much as they want, but only their last vote counts (if they still hold shares at the moment the votes are counted).
-    uint256 numberOfVotes;
     Vote[] votes;
 
     uint256 inFavor;
@@ -84,12 +83,14 @@ struct CorporateActionData {
     address exchange; //only relevant for RAISE_FUNDS and BUY_BACK, pack together with actionType
     uint256 numberOfShares; //the number of shares created or destroyed for ISSUE_SHARES or DESTROY_SHARES, the number of shares to sell or buy back for RAISE_FUNDS and BUY_BACK and the number of shares receiving dividend for DISTRIBUTE_DIVIDEND
     address currency; //ERC20 token
-    uint256 currencyAmount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount of dividend to be distributed per share for DISTRIBUTE_DIVIDEND
+    uint256 amount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount of dividend to be distributed per share for DISTRIBUTE_DIVIDEND
     address optionalCurrency; //ERC20 token
-    uint256 optionalCurrencyAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
+    uint256 optionalAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
 }
 
 contract Share is ERC20 {
+    using SafeERC20 for IERC20;
+
     //who manages the smart contract
     event RequestNewOwner(uint256 indexed id, address indexed newOwner);
     event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
@@ -104,7 +105,8 @@ contract Share is ERC20 {
 
     address public owner;
     
-    uint256 public shareHolderCount;
+    mapping(address => address[]) private approvedExchangesByToken;
+
     address[] private shareHolders; //we need to keep track of the shareholders in case of distributing a dividend
 
     DecisionParameters public decisionParameters;
@@ -188,19 +190,39 @@ contract Share is ERC20 {
         revert("Payments need to happen through wrapped Ether"); //as long as Ether is not ERC20 compliant
     }
 
+    function getLockedUpAmount(address tokenAddress) public view returns (uint256) {
+        address[] storage exchanges = approvedExchangesByToken[tokenAddress];
+        IERC20 token = IERC20(tokenAddress);
+
+        uint256 lockedUpAmount = 0;
+        for (uint256 i = 0; i < exchanges.length; i++) {
+            lockedUpAmount += token.allowance(address(this), exchanges[i]);
+        }
+        return lockedUpAmount;
+    }
+
+    function getAvailableAmount(address tokenAddress) public view returns (uint256) {
+        IERC20 token = IERC20(tokenAddress);
+        return token.balanceOf(address(this)) - getLockedUpAmount(tokenAddress);
+    }
+
+    function getTreasuryShareCount() public view returns (uint256) { //return the number of shares held by the company
+        return balanceOf(address(this)) - getLockedUpAmount(address(this));
+    }
+
     function getOutstandingShareCount() public view returns (uint256) { //return the number of shares not held by the company
-        return totalSupply() - balanceOf(address(this));
+        return totalSupply() - getTreasuryShareCount();
     }
 
     function changesRequireApproval() public view returns (bool) {
-        return shareHolderCount > 0;
+        return shareHolders.length > 0;
     }
 
     function packShareHolders() external isOwner { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
         uint256 packedIndex = 0;
         address[] memory packed;
 
-        for (uint256 i = 0; i < shareHolderCount; i++) {
+        for (uint256 i = 0; i < shareHolders.length; i++) {
             address shareHolder = shareHolders[i];
             if (balanceOf(shareHolder) > 0) {
                 packed[packedIndex] = shareHolder;
@@ -208,10 +230,9 @@ contract Share is ERC20 {
             }
         }
 
-        shareHolderCount = packedIndex;
         shareHolders = packed;
 
-        if (packedIndex == 0) { //changes do not require approval anymore, resolve all pending votes
+        if (packed.length == 0) { //changes do not require approval anymore, resolve all pending votes
             NewOwnerActionData storage newOwnerActionData = newOwnerActions[newOwnerId];
             doChangeOwnerOnApproval(newOwnerId, newOwnerActionData, newOwnerActionData.voteParameters);
 
@@ -221,6 +242,23 @@ contract Share is ERC20 {
             //TODO resolve corporate action vote
             //TODO resolve multiple! external proposal votes
         }
+    }
+
+    function packApprovedExchanges(address tokenAddress) external isOwner {
+        address[] storage approvedExchanges = approvedExchangesByToken[tokenAddress];
+        uint256 packedIndex = 0;
+        address[] memory packed;
+        IERC20 token = IERC20(tokenAddress);
+
+        for (uint256 i = 0; i < approvedExchanges.length; i++) {
+            address exchange = approvedExchanges[i];
+            if (token.allowance(address(this), exchange) > 0) {
+                packed[packedIndex] = exchange;
+                packedIndex++;
+            }
+        }
+
+        approvedExchangesByToken[tokenAddress] = packed;
     }
 
     function getFinalDecisionTime(ActionType actionType, uint256 id) external view returns (uint256) {
@@ -256,7 +294,7 @@ contract Share is ERC20 {
 
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, address, uint256, address, uint256, address, uint256) {
         CorporateActionData storage actionData = corporateActions[id];
-        return (actionData.actionType, actionData.exchange, actionData.numberOfShares, actionData.currency, actionData.currencyAmount, actionData.optionalCurrency, actionData.optionalCurrencyAmount);
+        return (actionData.actionType, actionData.exchange, actionData.numberOfShares, actionData.currency, actionData.amount, actionData.optionalCurrency, actionData.optionalAmount);
     }
 
     function vote(ActionType actionType, uint256 id, VoteType decision) external {
@@ -264,9 +302,9 @@ contract Share is ERC20 {
         if ((vP.result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.VOTING_IN_PROGRESS)) { //vP.result could be e.g. WITHDRAWN while the voting stage is still in progress
             address voter = msg.sender;
             if (balanceOf(voter) > 0) { //The amount of shares of the voter is checked later, so it does not matter if the voter still sells all his shares before the vote resolution.  This check just prevents people with no shares from increasing the votes array.
-                vP.lastVote[voter] = vP.numberOfVotes;
-                vP.votes[vP.numberOfVotes] = Vote(voter, decision);
-                vP.numberOfVotes++;
+                uint256 numberOfVotes = vP.votes.length;
+                vP.lastVote[voter] = numberOfVotes;
+                vP.votes[numberOfVotes] = Vote(voter, decision);
             }
         } else {
             revert("Cannot vote anymore");
@@ -392,54 +430,61 @@ contract Share is ERC20 {
     }
 
     function destroyShares(uint256 numberOfShares) external isOwner {
+        require(getTreasuryShareCount() >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
         if (!changesRequireApproval()) {
-            _burn(address(this), numberOfShares); //already checks if this address has enough ERC20 tokens
+            _burn(address(this), numberOfShares);
 
             emit CorporateAction(corporateActionId, CorporateActionType.DESTROY_SHARES, VoteResult.NO_OUTSTANDING_SHARES);
             corporateActionId++;
-            revert("Cannot initiate a new corporate action while an old corporate action is still pending");
         } else {
-            require(balanceOf(address(this)) >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
             doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
         }
     }
 
-    function doRequestCorporateAction(CorporateActionData storage actionData, CorporateActionType actionType, uint256 numberOfShares, address exchange, address currency, uint256 currencyAmount, address optionalCurrency, uint256 optionalCurrencyAmount) internal proceedOnRequest(actionData.voteParameters) {
+    function raiseFunds(uint256 numberOfShares, address exchange, address currency, uint256 price) external isOwner {
+        require(getTreasuryShareCount() >= numberOfShares, "Cannot offer more shares than the number of treasury shares");
+        if (!changesRequireApproval()) {
+            increaseAllowance(exchange, numberOfShares); //only send to safe exchanges, the from address of the transfer == msg.sender == the address of this contract, these shares are removed from treasury
+            IExchange(exchange).ask(address(this), numberOfShares, currency, price);
+
+            emit CorporateAction(corporateActionId, CorporateActionType.RAISE_FUNDS, VoteResult.NO_OUTSTANDING_SHARES);
+            corporateActionId++;
+        } else {
+            doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.RAISE_FUNDS, numberOfShares, exchange, currency, price, address(0), 0);
+        }
+    }
+
+    function buyBack(uint256 numberOfShares, address exchange, address currency, uint256 price) external isOwner {
+        uint256 totalPrice = numberOfShares*price;
+        require(getAvailableAmount(currency) >= totalPrice, "This contract does not have enough of the ERC20 token to buy back all the shares");
+        if (!changesRequireApproval()) {
+            IERC20(currency).safeIncreaseAllowance(exchange, totalPrice); //only send to safe exchanges, the from address of the transfer == msg.sender == the address of this contract
+            IExchange(exchange).bid(address(this), numberOfShares, currency, price);
+
+            emit CorporateAction(corporateActionId, CorporateActionType.BUY_BACK, VoteResult.NO_OUTSTANDING_SHARES);
+            corporateActionId++;
+        } else {
+            doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.BUY_BACK, numberOfShares, exchange, currency, price, address(0), 0);
+        }
+    }
+
+    function doRequestCorporateAction(CorporateActionData storage actionData, CorporateActionType actionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal proceedOnRequest(actionData.voteParameters) {
         actionData.actionType = actionType;
         actionData.numberOfShares = numberOfShares;
         if (exchange != address(0)) { //only store the exchange address if this is relevant
             actionData.exchange = exchange;
         }
-        if (currency != address(0)) { //only store pricePerShare info if this is relevant
+        if (currency != address(0)) { //only store currency info if this is relevant
             actionData.currency = currency;
-            actionData.currencyAmount = currencyAmount;
+            actionData.amount = amount;
         }
-        if (optionalCurrency != address(0)) { //only store optionalDividend info if this is relevant
+        if (optionalCurrency != address(0)) { //only store optionalCurrency info if this is relevant
             actionData.optionalCurrency = optionalCurrency;
-            actionData.optionalCurrencyAmount = optionalCurrencyAmount;
+            actionData.optionalAmount = optionalAmount;
         }
     }
 
 /*
-    function raiseFunds(uint256 numberOfShares, address exchange, address currency, uint256 amount) external isOwner {
-        if (!changesRequireApproval()) {
-            increaseAllowance(exchange, numberOfShares);
-            //TODO we have to lock up these shares, because ERC20 does not do this!
-            //TODO we also need a way of getting unsold shares back in case of a cancel, which needs another approval
-
-            emit CorporateAction(corporateActionId, CorporateActionType.RAISE_FUNDS, VoteResult.NO_OUTSTANDING_SHARES);
-            corporateActionId++;
-            revert("Cannot initiate a new corporate action while an old corporate action is still pending");
-        } else {
-            require(balanceOf(address(this)) >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
-            doRequestCorporateAction(corporateActions[corporateActionId], CorporateActionType.RAISE_FUNDS, numberOfShares, exchange, currency, amount, address(0), 0);
-        }
-    }
-
-    function buyBackShares(uint256 numberOfShares, address currency, uint256 amount, address exchange) external isOwner {
-
-    }
-
     function distributeDividend(uint256 numberOfShares, address currency, uint256 amount) external isOwner {
 
     }
@@ -510,7 +555,7 @@ contract Share is ERC20 {
 
         mapping(address => uint256) storage lastVote = voteParameters.lastVote;
         Vote[] storage votes = voteParameters.votes;
-        for (uint256 i = 0; i < voteParameters.numberOfVotes; i++) {
+        for (uint256 i = 0; i < votes.length; i++) {
             Vote storage v = votes[i];
             if (lastVote[v.voter] == i) { //a shareholder may vote as many times as he wants, but only consider his last vote
                 uint256 votingPower = balanceOf(v.voter);
