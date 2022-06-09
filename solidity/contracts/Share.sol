@@ -33,11 +33,11 @@ contract Share is ERC20 {
         _;
     }
 
-    constructor(string memory name, string memory symbol, uint256 numberOfShares) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress) ERC20(name, symbol) {
         owner = msg.sender;
         _mint(address(this), numberOfShares);
 
-        scrutineer = new Scrutineer();
+        scrutineer = Scrutineer(payable(scrutineerAddress));
 
         emit NewOwner(newOwnerId, owner, VoteResult.NO_OUTSTANDING_SHARES);
         newOwnerId++;
@@ -77,6 +77,10 @@ contract Share is ERC20 {
 
     function getOutstandingShareCount() public view returns (uint256) { //return the number of shares not held by the company
         return totalSupply() - getTreasuryShareCount();
+    }
+
+    function getShareHolderCount() external view returns (uint256) {
+        return shareHolders.length;
     }
 
     function changesRequireApproval() public view returns (bool) {
@@ -207,10 +211,10 @@ contract Share is ERC20 {
         uint64 executionTime;
         uint32 quorumNumerator;
         uint32 quorumDenominator;
-        uint32 majorityNumerator;
-        uint32 majorityDenominator;
+        uint32 majorityNumerator = 1;
+        uint32 majorityDenominator = 2;
 
-        (isEmitEvent, result, actionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator) = scrutineer.getDecisionParametersResults(decisionParametersId, changesRequireApproval(), getOutstandingShareCount());
+        (isEmitEvent, result, actionType, decisionTime, executionTime, quorumNumerator, quorumDenominator) = scrutineer.getDecisionParametersResults(decisionParametersId, changesRequireApproval(), getOutstandingShareCount());
 
         if (isEmitEvent) {
             if (result == VoteResult.APPROVED) {

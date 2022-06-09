@@ -244,7 +244,7 @@ contract Scrutineer {
         emit RequestDecisionParametersChange(decisionParametersId, actionType);
     }
 
-    function getDecisionParametersResults(uint256 id, bool changesRequireApproval, uint256 outstandingShareCount) external isOwner returns (bool, VoteResult, DecisionActionType, uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getDecisionParametersResults(uint256 id, bool changesRequireApproval, uint256 outstandingShareCount) external isOwner returns (bool, VoteResult, DecisionActionType, uint64, uint64, uint32, uint32) {
         DecisionParametersData storage data = decisionParametersData[id];
         DecisionParameters storage pP = data.proposedParameters;
 
@@ -253,7 +253,7 @@ contract Scrutineer {
 
         (isEmitEvent, result) = isCountVotes(data.voteParameters, changesRequireApproval, outstandingShareCount);
 
-        return (isEmitEvent, result, data.actionType, pP.decisionTime, pP.executionTime, pP.quorumNumerator, pP.quorumDenominator, pP.majorityNumerator, pP.majorityDenominator);
+        return (isEmitEvent, result, data.actionType, pP.decisionTime, pP.executionTime, pP.quorumNumerator, pP.quorumDenominator);
     }
 
     function withdrawChangeDecisionParameters(uint256 id) external isOwner returns (bool, VoteResult, DecisionActionType) {
