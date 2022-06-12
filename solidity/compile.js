@@ -4,6 +4,8 @@ const solc = require('solc');
  
 const testTokenPath = path.resolve(__dirname, 'contracts', 'TestGold.sol');
 const testTokenSource = fs.readFileSync(testTokenPath, 'utf8');
+const scrutineerPath = path.resolve(__dirname, 'contracts', 'Scrutineer.sol');
+const scrutineerSource = fs.readFileSync(scrutineerPath, 'utf8');
 const sharePath = path.resolve(__dirname, 'contracts', 'Share.sol');
 const shareSource = fs.readFileSync(sharePath, 'utf8');
 const exchangePath = path.resolve(__dirname, 'contracts', 'Exchange.sol');
@@ -14,6 +16,9 @@ const input = { //compiler input description
   sources: {
     'TestGold.sol': {
       content: testTokenSource,
+    },
+    'Scrutineer.sol': {
+      content: scrutineerSource,
     },
     'Share.sol': {
       content: shareSource,
@@ -51,6 +56,7 @@ if (parsed.errors) {
 } else {
   let allContracts = parsed.contracts;
   contracts.TestGold = allContracts['TestGold.sol'].TestGold;
+  contracts.Scrutineer = allContracts['Scrutineer.sol'].Scrutineer;
   contracts.Share = allContracts['Share.sol'].Share;
   contracts.Exchange = allContracts['Exchange.sol'].Exchange;
 }
