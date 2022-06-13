@@ -46,8 +46,8 @@ contract Share is ERC20, IShare {
     event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
 
     //actions changing how decisions are made
-    event RequestDecisionParameters(uint256 indexed id, DecisionParametersType indexed decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event DecisionParameters(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event RequestDecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event DecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
     //corporate actions
     event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
@@ -79,11 +79,8 @@ contract Share is ERC20, IShare {
         scrutineer = IScrutineer(scrutineerAddress);
         shareInfo = IShareInfo(shareInfoAddress);
 
-        //set sensible default values
-        scrutineer.setDecisionParameters(2592000, 604800, 0, 1, 1, 2); //2592000s = 30 days, 604800s = 7 days
-
-        doChangeOwner(msg.sender);
-        issueShares(numberOfShares);
+        owner = msg.sender;
+        _mint(address(this), numberOfShares);
     }
 
 
@@ -212,7 +209,7 @@ contract Share is ERC20, IShare {
             if (noSharesOutstanding) {
                 scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
 
-                emit DecisionParameters(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit DecisionParametersChange(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
                 DecisionParametersData storage dP = decisionParametersData[id];
                 dP.decisionType = decisionType;
@@ -225,7 +222,7 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = id;
 
-                emit RequestDecisionParameters(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit RequestDecisionParametersChange(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
@@ -261,7 +258,7 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = 0;
 
-                emit DecisionParameters(id, decisionType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit DecisionParametersChange(id, decisionType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
