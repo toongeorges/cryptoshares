@@ -6,67 +6,26 @@ import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import 'contracts/IScrutineer.sol';
+import 'contracts/IShareRequest.sol';
 import 'contracts/IExchange.sol';
-
-enum DecisionParametersType {
-    CHANGE_DECISION_TIME, CHANGE_QUORUM, CHANGE_MAJORITY, CHANGE_ALL
-}
-
-struct DecisionParametersData { //this is the same struct as the Scrutineer's DecisionParameters struct, with one extra field: decisionType
-    DecisionParametersType decisionType;
-    uint64 decisionTime; //How much time in seconds shareholders have to approve a request
-    uint64 executionTime; //How much time in seconds the owner has to execute an approved request after the decisionTime has ended
-    uint32 quorumNumerator;
-    uint32 quorumDenominator;
-    uint32 majorityNumerator;
-    uint32 majorityDenominator;
-}
-
-enum CorporateActionType {
-    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, DISTRIBUTE_DIVIDEND
-}
-
-struct CorporateActionData {
-    CorporateActionType decisionType;
-    address exchange; //only relevant for RAISE_FUNDS and BUY_BACK, pack together with decisionType
-    uint256 numberOfShares; //the number of shares created or destroyed for ISSUE_SHARES or DESTROY_SHARES, the number of shares to sell or buy back for RAISE_FUNDS and BUY_BACK and the number of shares receiving dividend for DISTRIBUTE_DIVIDEND
-    address currency; //ERC20 token
-    uint256 amount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount of dividend to be distributed per share for DISTRIBUTE_DIVIDEND
-    address optionalCurrency; //ERC20 token
-    uint256 optionalAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
-}
 
 contract Share is ERC20 {
     using SafeERC20 for IERC20;
-
-    //who manages the smart contract
-    event RequestNewOwner(uint256 indexed id, address indexed newOwner);
-    event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
-
-    //actions changing how decisions are made
-    event RequestDecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event DecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-
-    //corporate actions
-    event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
-    event CorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, VoteResult indexed voteResult, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
-
-    //external proposals, context needs to be provided
-    event RequestExternalProposal(uint256 indexed id);
-    event ExternalProposal(uint256 indexed id, VoteResult indexed voteResult);
+    
+    event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult); //who manages the smart contract
+    event DecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator); //actions changing how decisions are made
+    event CorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, VoteResult indexed voteResult, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount); //corporate actions
+    event ExternalProposal(uint256 indexed id, VoteResult indexed voteResult); //external proposals, context needs to be provided
 
     address public owner;
     IScrutineer public scrutineer;
+    IShareRequest public shareRequest;
 
     mapping(address => uint256) private shareholderIndex;
     address[] private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
 
     mapping(address => mapping(address => uint256)) private approvedExchangeIndexByToken;
     mapping(address => address[]) private approvedExchangesByToken;
-
-    mapping(uint256 => address) private newOwners;
-    mapping(uint256 => DecisionParametersData) private decisionParameters;
-    mapping(uint256 => CorporateActionData) private corporateActions;
 
     uint256 public pendingNewOwnerId;
     uint256 public pendingDecisionParametersId;
@@ -78,9 +37,10 @@ contract Share is ERC20 {
         _;
     }
 
-    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress, address shareRequestAddress) ERC20(name, symbol) {
         require(numberOfShares > 0); //TODO remove
         scrutineer = IScrutineer(scrutineerAddress);
+        shareRequest = IShareRequest(shareRequestAddress);
 
         //set sensible default values
         scrutineer.setDecisionParameters(2592000, 604800, 0, 1, 1, 2); //2592000s = 30 days, 604800s = 7 days
@@ -208,17 +168,15 @@ contract Share is ERC20 {
 
 
     function getProposedOwner(uint256 id) external view returns (address) {
-        return newOwners[id];
+        return shareRequest.getProposedOwner(id);
     }
 
     function getProposedDecisionParameters(uint256 id) external view returns (DecisionParametersType, uint64, uint64, uint32, uint32, uint32, uint32) {
-        DecisionParametersData storage dP = decisionParameters[id];
-        return (dP.decisionType, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+        return shareRequest.getProposedDecisionParameters(id);
     }
 
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256) {
-        CorporateActionData storage corporateAction = corporateActions[id];
-        return (corporateAction.decisionType, corporateAction.numberOfShares, corporateAction.exchange, corporateAction.currency, corporateAction.amount, corporateAction.optionalCurrency, corporateAction.optionalAmount);
+        return shareRequest.getProposedCorporateAction(id);
     }
 
 
@@ -236,11 +194,8 @@ contract Share is ERC20 {
 
                 emit NewOwner(id, newOwner, VoteResult.NO_OUTSTANDING_SHARES);
             } else {
-                newOwners[id] = newOwner;
-
+                shareRequest.requestNewOwner(id, newOwner);
                 pendingNewOwnerId = id;
-
-                emit RequestNewOwner(id, newOwner);
             }
         }
     }
@@ -253,7 +208,7 @@ contract Share is ERC20 {
             if (resultHasBeenUpdated) {
                 (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
 
-                address newOwner = newOwners[id];
+                address newOwner = shareRequest.getProposedOwner(id);
 
                 if (voteResult == VoteResult.APPROVED) {
                     owner = newOwner;
@@ -276,7 +231,7 @@ contract Share is ERC20 {
 
                 pendingNewOwnerId = 0;
 
-                emit NewOwner(id, newOwners[id], voteResult);
+                emit NewOwner(id, shareRequest.getProposedOwner(id), voteResult);
             }
         }
     }
@@ -312,18 +267,8 @@ contract Share is ERC20 {
 
                 emit DecisionParametersChange(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
-                DecisionParametersData storage dP = decisionParameters[id];
-                dP.decisionType = decisionType;
-                dP.decisionTime = decisionTime;
-                dP.executionTime = executionTime;
-                dP.quorumNumerator = quorumNumerator;
-                dP.quorumDenominator = quorumDenominator;
-                dP.majorityNumerator = majorityNumerator;
-                dP.majorityDenominator = majorityDenominator;
-
+                shareRequest.requestDecisionParametersChange(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
                 pendingDecisionParametersId = id;
-
-                emit RequestDecisionParametersChange(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
@@ -336,14 +281,7 @@ contract Share is ERC20 {
             if (resultHasBeenUpdated) {
                 (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
 
-                DecisionParametersData storage dP = decisionParameters[id];
-                DecisionParametersType decisionType = dP.decisionType;
-                uint64 decisionTime = dP.decisionTime;
-                uint64 executionTime = dP.executionTime;
-                uint32 quorumNumerator = dP.quorumNumerator;
-                uint32 quorumDenominator = dP.quorumDenominator;
-                uint32 majorityNumerator = dP.majorityNumerator;
-                uint32 majorityDenominator = dP.majorityDenominator;
+                (DecisionParametersType decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) = shareRequest.getProposedDecisionParameters(id);
 
                 if (voteResult == VoteResult.APPROVED) {
                     scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
@@ -364,11 +302,11 @@ contract Share is ERC20 {
             if (withdrawalWasSuccessful) {
                 (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
 
-                DecisionParametersData storage dP = decisionParameters[id];
+                (DecisionParametersType decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) = shareRequest.getProposedDecisionParameters(id);
 
                 pendingDecisionParametersId = 0;
 
-                emit DecisionParametersChange(id, dP.decisionType, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+                emit DecisionParametersChange(id, decisionType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
@@ -443,24 +381,9 @@ contract Share is ERC20 {
     }
 
     function doRequestCorporateAction(uint256 id, CorporateActionType decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
-        CorporateActionData storage corporateAction = corporateActions[id];
-        corporateAction.decisionType = decisionType;
-        corporateAction.numberOfShares = numberOfShares;
-        if (exchange != address(0)) { //only store the exchange address if this is relevant
-            corporateAction.exchange = exchange;
-        }
-        if (currency != address(0)) { //only store currency info if this is relevant
-            corporateAction.currency = currency;
-            corporateAction.amount = amount;
-        }
-        if (optionalCurrency != address(0)) { //only store optionalCurrency info if this is relevant
-            corporateAction.optionalCurrency = optionalCurrency;
-            corporateAction.optionalAmount = optionalAmount;
-        }
+        shareRequest.requestCorporateAction(id, decisionType, numberOfShares, exchange, currency, amount, optionalCurrency, optionalAmount);
 
         pendingCorporateActionId = id;
-
-        emit RequestCorporateAction(id, decisionType, numberOfShares, exchange, currency, amount, optionalCurrency, optionalAmount);
     }
 
 

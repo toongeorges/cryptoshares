@@ -8,6 +8,7 @@ const contracts = require('../compile');
 let accounts;
 let testGold;
 let scrutineer;
+let shareRequest;
 let share;
  
 beforeEach(async () => {
@@ -28,12 +29,19 @@ beforeEach(async () => {
   })
   .send({ from: accounts[0], gas: '3000000' });
 
+  shareRequest = await new web3.eth.Contract(contracts.ShareRequest.abi)
+    .deploy({
+      data: contracts.ShareRequest.evm.bytecode.object,
+      arguments: [],
+    })
+    .send({ from: accounts[0], gas: '3000000' });
+
   share = await new web3.eth.Contract(contracts.Share.abi)
     .deploy({
       data: contracts.Share.evm.bytecode.object,
-      arguments: ['The Blockchain Company', 'TBC', 10000, scrutineer.options.address],
+      arguments: ['The Blockchain Company', 'TBC', 10000, scrutineer.options.address, shareRequest.options.address],
     })
-    .send({ from: accounts[0], gas: '6000000' });
+    .send({ from: accounts[0], gas: '3000000' });
 });
     
 describe('Share creation', () => {

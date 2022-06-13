@@ -6,6 +6,8 @@ const solc = require('solc');
 const testTokenPath = path.resolve(__dirname, 'contracts', 'TestGold.sol');
 const testTokenSource = fs.readFileSync(testTokenPath, 'utf8');
 const scrutineerPath = path.resolve(__dirname, 'contracts', 'Scrutineer.sol');
+const shareRequestPath = path.resolve(__dirname, 'contracts', 'ShareRequest.sol');
+const shareRequestSource = fs.readFileSync(shareRequestPath, 'utf8');
 const scrutineerSource = fs.readFileSync(scrutineerPath, 'utf8');
 const sharePath = path.resolve(__dirname, 'contracts', 'Share.sol');
 const shareSource = fs.readFileSync(sharePath, 'utf8');
@@ -20,6 +22,9 @@ const input = { //compiler input description
     },
     'Scrutineer.sol': {
       content: scrutineerSource,
+    },
+    'ShareRequest.sol': {
+      content: shareRequestSource,
     },
     'Share.sol': {
       content: shareSource,
@@ -54,22 +59,25 @@ let parsed = JSON.parse(compilation);
 let contracts = {};
 if (parsed.errors) {
   console.log(parsed.errors)
-} else {
-  let allContracts = parsed.contracts;
-  contracts.TestGold = allContracts['TestGold.sol'].TestGold;
-  contracts.Scrutineer = allContracts['Scrutineer.sol'].Scrutineer;
-  contracts.Share = allContracts['Share.sol'].Share;
-  contracts.Exchange = allContracts['Exchange.sol'].Exchange;
 }
 
+const allContracts = parsed.contracts;
+contracts.TestGold = allContracts['TestGold.sol'].TestGold;
+contracts.Scrutineer = allContracts['Scrutineer.sol'].Scrutineer;
+contracts.ShareRequest = allContracts['ShareRequest.sol'].ShareRequest;
+contracts.Share = allContracts['Share.sol'].Share;
+contracts.Exchange = allContracts['Exchange.sol'].Exchange;
+
 //evm.bytecode.object is in hexadecimal notation, so the length in bytes is half the length of the string 
-let testGoldSize = contracts.TestGold.evm.bytecode.object.length/2;
-let scrutineerSize = contracts.Scrutineer.evm.bytecode.object.length/2;
-let shareSize = contracts.Share.evm.bytecode.object.length/2;
-let exchangeSize = contracts.Exchange.evm.bytecode.object.length/2;
+const testGoldSize = contracts.TestGold.evm.bytecode.object.length/2;
+const scrutineerSize = contracts.Scrutineer.evm.bytecode.object.length/2;
+const shareRequestSize = contracts.ShareRequest.evm.bytecode.object.length/2;
+const shareSize = contracts.Share.evm.bytecode.object.length/2;
+const exchangeSize = contracts.Exchange.evm.bytecode.object.length/2;
 
 console.log('TestGold contract size: ' + testGoldSize + ' bytes');
 console.log('Scrutineer contract size: ' + scrutineerSize + ' bytes');
+console.log('Share Request contract size: ' + shareRequestSize + ' bytes');
 console.log('Share contract size: ' + shareSize + ' bytes');
 console.log('Exchange contract size: ' + exchangeSize + ' bytes');
 
@@ -77,6 +85,7 @@ const maxContractSize = 24576; //The Ethereum blockchain does not allow contract
 
 assert.ok(testGoldSize <= maxContractSize);
 assert.ok(scrutineerSize <= maxContractSize);
+assert.ok(shareRequestSize <= maxContractSize);
 assert.ok(shareSize <= maxContractSize);
 assert.ok(exchangeSize <= maxContractSize);
 
