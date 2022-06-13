@@ -7,7 +7,7 @@ import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import 'contracts/IShare.sol';
 import 'contracts/IScrutineer.sol';
-import 'contracts/IShareholderData.sol';
+import 'contracts/IShareInfo.sol';
 import 'contracts/IExchange.sol';
 
 enum DecisionParametersType {
@@ -59,7 +59,7 @@ contract Share is ERC20, IShare {
 
     address public owner;
     IScrutineer public scrutineer;
-    IShareholderData public shareholderData;
+    IShareInfo public shareInfo;
 
     mapping(uint256 => address) private newOwners;
     mapping(uint256 => DecisionParametersData) private decisionParametersData;
@@ -75,9 +75,9 @@ contract Share is ERC20, IShare {
         _;
     }
 
-    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress, address shareholderDataAddress) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress, address shareInfoAddress) ERC20(name, symbol) {
         scrutineer = IScrutineer(scrutineerAddress);
-        shareholderData = IShareholderData(shareholderDataAddress);
+        shareInfo = IShareInfo(shareInfoAddress);
 
         //set sensible default values
         scrutineer.setDecisionParameters(2592000, 604800, 0, 1, 1, 2); //2592000s = 30 days, 604800s = 7 days
@@ -102,36 +102,16 @@ contract Share is ERC20, IShare {
 
 
 
-    function getLockedUpAmount(address tokenAddress) external view returns (uint256) {
-        return shareholderData.getLockedUpAmount(tokenAddress);
-    }
-
-    function getAvailableAmount(address tokenAddress) external view returns (uint256) {
-        return shareholderData.getAvailableAmount(tokenAddress);
-    }
-
-    function getTreasuryShareCount() external view returns (uint256) { //return the number of shares held by the company
-        return shareholderData.getTreasuryShareCount();
-    }
-
-    function getOutstandingShareCount() external view returns (uint256) { //return the number of shares not held by the company
-        return shareholderData.getOutstandingShareCount();
-    }
-
-    function getShareholderCount() external view returns (uint256) {
-        return shareholderData.getShareholderCount();
-    }
-
     function registerShareholder(address shareholder) external returns (uint256) {
-        return shareholderData.registerShareholder(shareholder);
+        return shareInfo.registerShareholder(shareholder);
     }
 
     function packShareholders() external isOwner { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
-        shareholderData.packShareholders();
+        shareInfo.packShareholders();
     }
 
     function packApprovedExchanges(address tokenAddress) external isOwner {
-        shareholderData.packApprovedExchanges(tokenAddress);
+        shareInfo.packApprovedExchanges(tokenAddress);
     }
 
 
@@ -318,7 +298,7 @@ contract Share is ERC20, IShare {
 
     function destroyShares(uint256 numberOfShares) external isOwner {
         if (pendingCorporateActionId == 0) {
-            require(shareholderData.getTreasuryShareCount() >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
+            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -334,12 +314,12 @@ contract Share is ERC20, IShare {
 
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
         if (pendingCorporateActionId == 0) {
-            require(shareholderData.getTreasuryShareCount() >= numberOfShares, "Cannot offer more shares than the number of treasury shares");
+            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares, "Cannot offer more shares than the number of treasury shares");
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                shareholderData.registerApprovedExchange(address(this), exchangeAddress);
+                shareInfo.registerApprovedExchange(address(this), exchangeAddress);
                 increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.ask(address(this), numberOfShares, currency, price);
@@ -354,12 +334,12 @@ contract Share is ERC20, IShare {
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
         if (pendingCorporateActionId == 0) {
             uint256 totalPrice = numberOfShares*price;
-            require(shareholderData.getAvailableAmount(currency) >= totalPrice, "This contract does not have enough of the ERC20 token to buy back all the shares");
+            require(shareInfo.getAvailableAmount(address(this), currency) >= totalPrice, "This contract does not have enough of the ERC20 token to buy back all the shares");
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                shareholderData.registerApprovedExchange(currency, exchangeAddress);
+                shareInfo.registerApprovedExchange(currency, exchangeAddress);
                 IERC20(currency).safeIncreaseAllowance(exchangeAddress, totalPrice); //only send to safe exchanges, the total price is locked up
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.bid(address(this), numberOfShares, currency, price);

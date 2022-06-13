@@ -3,10 +3,10 @@
 pragma solidity ^0.8.9;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
-import 'contracts/IShareholderData.sol';
+import 'contracts/IShareInfo.sol';
 import 'contracts/IShare.sol';
 
-contract ShareholderData is IShareholderData {
+contract ShareInfo is IShareInfo {
     mapping(address => mapping(address => uint256)) private shareholderIndex;
     mapping(address => address[]) private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
 
@@ -25,33 +25,33 @@ contract ShareholderData is IShareholderData {
 
 
 
-    function getLockedUpAmount(address tokenAddress) public view override returns (uint256) {
-        address[] storage exchanges = approvedExchangesByToken[msg.sender][tokenAddress];
+    function getLockedUpAmount(address shareAddress, address tokenAddress) public view override returns (uint256) {
+        address[] storage exchanges = approvedExchangesByToken[shareAddress][tokenAddress];
         IERC20 token = IERC20(tokenAddress);
 
         uint256 lockedUpAmount = 0;
         for (uint256 i = 0; i < exchanges.length; i++) {
-            lockedUpAmount += token.allowance(msg.sender, exchanges[i]);
+            lockedUpAmount += token.allowance(shareAddress, exchanges[i]);
         }
         return lockedUpAmount;
     }
 
-    function getAvailableAmount(address tokenAddress) public view override returns (uint256) {
+    function getAvailableAmount(address shareAddress, address tokenAddress) public view override returns (uint256) {
         IERC20 token = IERC20(tokenAddress);
-        return token.balanceOf(msg.sender) - getLockedUpAmount(tokenAddress);
+        return token.balanceOf(shareAddress) - getLockedUpAmount(shareAddress, tokenAddress);
     }
 
-    function getTreasuryShareCount() public view override returns (uint256) { //return the number of shares held by the company
-        return IERC20(msg.sender).balanceOf(msg.sender) - getLockedUpAmount(msg.sender);
+    function getTreasuryShareCount(address shareAddress) public view override returns (uint256) { //return the number of shares held by the company
+        return IERC20(shareAddress).balanceOf(shareAddress) - getLockedUpAmount(shareAddress, shareAddress);
     }
 
-    function getOutstandingShareCount() public view override returns (uint256) { //return the number of shares not held by the company
-        IERC20 share = IERC20(msg.sender);
-        return share.totalSupply() - share.balanceOf(msg.sender);
+    function getOutstandingShareCount(address shareAddress) public view override returns (uint256) { //return the number of shares not held by the company
+        IERC20 share = IERC20(shareAddress);
+        return share.totalSupply() - share.balanceOf(shareAddress);
     }
 
-    function getShareholderCount() external view override returns (uint256) {
-        return shareholders[msg.sender].length;
+    function getShareholderCount(address shareAddress) external view override returns (uint256) {
+        return shareholders[shareAddress].length;
     }
 
     function getShareholders() external view returns (address[] memory) {
@@ -95,7 +95,7 @@ contract ShareholderData is IShareholderData {
             }
         }
 
-        if (getOutstandingShareCount() == 0) { //changes do not require approval anymore, resolve all pending votes
+        if (getOutstandingShareCount(msg.sender) == 0) { //changes do not require approval anymore, resolve all pending votes
             IShare share = IShare(msg.sender);
 
             share.changeOwnerOnApproval();

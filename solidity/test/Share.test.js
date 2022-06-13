@@ -8,7 +8,7 @@ const contracts = require('../compile');
 let accounts;
 let testGold;
 let scrutineer;
-let shareholderData;
+let shareInfo;
 let share;
  
 beforeEach(async () => {
@@ -29,9 +29,9 @@ beforeEach(async () => {
   })
   .send({ from: accounts[0], gas: '3000000' });
 
-  shareholderData = await new web3.eth.Contract(contracts.ShareholderData.abi)
+  shareInfo = await new web3.eth.Contract(contracts.ShareInfo.abi)
   .deploy({
-    data: contracts.ShareholderData.evm.bytecode.object,
+    data: contracts.ShareInfo.evm.bytecode.object,
     arguments: [],
   })
   .send({ from: accounts[0], gas: '3000000' });
@@ -39,7 +39,7 @@ beforeEach(async () => {
   share = await new web3.eth.Contract(contracts.Share.abi)
     .deploy({
       data: contracts.Share.evm.bytecode.object,
-      arguments: ['The Blockchain Company', 'TBC', 10000, scrutineer.options.address, shareholderData.options.address],
+      arguments: ['The Blockchain Company', 'TBC', 10000, scrutineer.options.address, shareInfo.options.address],
     })
     .send({ from: accounts[0], gas: '3000000' });
 });
@@ -48,14 +48,14 @@ describe('Share creation', () => {
   it('deploys a contract', () => {
     assert.ok(testGold.options.address);
     assert.ok(scrutineer.options.address);
-    assert.ok(shareholderData.options.address);
+    assert.ok(shareInfo.options.address);
     assert.ok(share.options.address);
   });
   it('can not accept native ether payments', async () => {
     await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: scrutineer.options.address, value: 100 })); //msg.data is empty, test receive()
     await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: scrutineer.options.address, value: 100, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
-    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: shareholderData.options.address, value: 110 })); //msg.data is empty, test receive()
-    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: shareholderData.options.address, value: 120, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
+    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: shareInfo.options.address, value: 110 })); //msg.data is empty, test receive()
+    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: shareInfo.options.address, value: 120, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
     await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: share.options.address, value: 200 })); //msg.data is empty, test receive()
     await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: share.options.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
   });
