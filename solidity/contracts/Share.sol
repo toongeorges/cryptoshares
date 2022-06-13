@@ -10,20 +10,6 @@ import 'contracts/IScrutineer.sol';
 import 'contracts/IShareInfo.sol';
 import 'contracts/IExchange.sol';
 
-enum DecisionParametersType {
-    CHANGE_DECISION_TIME, CHANGE_QUORUM, CHANGE_MAJORITY, CHANGE_ALL
-}
-
-struct DecisionParametersData { //this is the same struct as the Scrutineer's DecisionParameters struct, with one extra field: decisionType
-    DecisionParametersType decisionType;
-    uint64 decisionTime; //How much time in seconds shareholders have to approve a request
-    uint64 executionTime; //How much time in seconds the owner has to execute an approved request after the decisionTime has ended
-    uint32 quorumNumerator;
-    uint32 quorumDenominator;
-    uint32 majorityNumerator;
-    uint32 majorityDenominator;
-}
-
 enum CorporateActionType {
     ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, DISTRIBUTE_DIVIDEND
 }
@@ -46,8 +32,8 @@ contract Share is ERC20, IShare {
     event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
 
     //actions changing how decisions are made
-    event RequestDecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event DecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event RequestDecisionParametersChange(uint256 indexed id, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event DecisionParametersChange(uint256 indexed id, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
     //corporate actions
     event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
@@ -62,7 +48,7 @@ contract Share is ERC20, IShare {
     IShareInfo public shareInfo;
 
     mapping(uint256 => address) private newOwners;
-    mapping(uint256 => DecisionParametersData) private decisionParametersData;
+    mapping(uint256 => DecisionParameters) private decisionParametersData;
     mapping(uint256 => CorporateActionData) private corporateActionsData;
 
     uint256 public pendingNewOwnerId;
@@ -117,9 +103,9 @@ contract Share is ERC20, IShare {
         return newOwners[id];
     }
 
-    function getProposedDecisionParameters(uint256 id) external view returns (DecisionParametersType, uint64, uint64, uint32, uint32, uint32, uint32) {
-        DecisionParametersData storage dP = decisionParametersData[id];
-        return (dP.decisionType, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+    function getProposedDecisionParameters(uint256 id) external view returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+        DecisionParameters storage dP = decisionParametersData[id];
+        return (dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256) {
@@ -180,39 +166,16 @@ contract Share is ERC20, IShare {
         }
     }
 
-    function changeDecisionTime(uint64 decisionTime, uint64 executionTime) external isOwner {
-        (,, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) = scrutineer.getDecisionParameters();
-
-        doChangeDecisionParameters(DecisionParametersType.CHANGE_DECISION_TIME, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-    }
-
-    function changeQuorum(uint32 quorumNumerator, uint32 quorumDenominator) external isOwner {
-        (uint64 decisionTime, uint64 executionTime,,, uint32 majorityNumerator, uint32 majorityDenominator) = scrutineer.getDecisionParameters();
-
-        doChangeDecisionParameters(DecisionParametersType.CHANGE_QUORUM, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-    }
-
-    function changeMajority(uint32 majorityNumerator, uint32 majorityDenominator) external isOwner {
-        (uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator,,) = scrutineer.getDecisionParameters();
-
-        doChangeDecisionParameters(DecisionParametersType.CHANGE_MAJORITY, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-    }
-
     function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external isOwner {
-        doChangeDecisionParameters(DecisionParametersType.CHANGE_ALL, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-    }
-
-    function doChangeDecisionParameters(DecisionParametersType decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
         if (pendingDecisionParametersId == 0) {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
                 scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
 
-                emit DecisionParametersChange(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit DecisionParametersChange(id, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
-                DecisionParametersData storage dP = decisionParametersData[id];
-                dP.decisionType = decisionType;
+                DecisionParameters storage dP = decisionParametersData[id];
                 dP.decisionTime = decisionTime;
                 dP.executionTime = executionTime;
                 dP.quorumNumerator = quorumNumerator;
@@ -222,7 +185,7 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = id;
 
-                emit RequestDecisionParametersChange(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit RequestDecisionParametersChange(id, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
@@ -243,8 +206,7 @@ contract Share is ERC20, IShare {
             if (resultHasBeenUpdated) {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
-                DecisionParametersData storage dP = decisionParametersData[id];
-                DecisionParametersType decisionType = dP.decisionType;
+                DecisionParameters storage dP = decisionParametersData[id];
                 uint64 decisionTime = dP.decisionTime;
                 uint64 executionTime = dP.executionTime;
                 uint32 quorumNumerator = dP.quorumNumerator;
@@ -258,7 +220,7 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = 0;
 
-                emit DecisionParametersChange(id, decisionType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit DecisionParametersChange(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
