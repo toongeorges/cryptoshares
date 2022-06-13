@@ -90,11 +90,11 @@ contract Share is ERC20, IShare {
     }
 
     receive() external payable { //used to receive wei when msg.data is empty
-        revert("Payments need to happen through wrapped Ether"); //as long as Ether is not ERC20 compliant
+        revert(); //as long as Ether is not ERC20 compliant
     }
 
     fallback() external payable { //used to receive wei when msg.data is not empty
-        revert("Payments need to happen through wrapped Ether"); //as long as Ether is not ERC20 compliant
+        revert(); //as long as Ether is not ERC20 compliant
     }
 
 

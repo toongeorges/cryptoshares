@@ -38,11 +38,11 @@ contract Scrutineer is IScrutineer {
 
 
     receive() external payable { //used to receive wei when msg.data is empty
-        revert("This is a free service"); //as long as Ether is not ERC20 compliant
+        revert(); //as long as Ether is not ERC20 compliant
     }
 
     fallback() external payable { //used to receive wei when msg.data is not empty
-        revert("This is a free service"); //as long as Ether is not ERC20 compliant
+        revert(); //as long as Ether is not ERC20 compliant
     }
 
 

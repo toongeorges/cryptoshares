@@ -16,11 +16,11 @@ contract ShareInfo is IShareInfo {
 
 
     receive() external payable { //used to receive wei when msg.data is empty
-        revert("This is a free service");
+        revert();
     }
 
     fallback() external payable { //used to receive wei when msg.data is not empty
-        revert("This is a free service");
+        revert();
     }
 
 
