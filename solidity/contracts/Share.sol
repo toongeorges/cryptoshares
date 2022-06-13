@@ -5,7 +5,9 @@ pragma solidity ^0.8.9;
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import 'contracts/IShare.sol';
 import 'contracts/IScrutineer.sol';
+import 'contracts/IShareholderData.sol';
 import 'contracts/IExchange.sol';
 
 enum DecisionParametersType {
@@ -36,7 +38,7 @@ struct CorporateActionData {
     uint256 optionalAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
 }
 
-contract Share is ERC20 {
+contract Share is ERC20, IShare {
     using SafeERC20 for IERC20;
 
     //who manages the smart contract
@@ -57,16 +59,11 @@ contract Share is ERC20 {
 
     address public owner;
     IScrutineer public scrutineer;
-
-    mapping(address => uint256) private shareholderIndex;
-    address[] private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
-
-    mapping(address => mapping(address => uint256)) private approvedExchangeIndexByToken;
-    mapping(address => address[]) private approvedExchangesByToken;
+    IShareholderData public shareholderData;
 
     mapping(uint256 => address) private newOwners;
-    mapping(uint256 => DecisionParametersData) private decisionParameters;
-    mapping(uint256 => CorporateActionData) private corporateActions;
+    mapping(uint256 => DecisionParametersData) private decisionParametersData;
+    mapping(uint256 => CorporateActionData) private corporateActionsData;
 
     uint256 public pendingNewOwnerId;
     uint256 public pendingDecisionParametersId;
@@ -78,16 +75,15 @@ contract Share is ERC20 {
         _;
     }
 
-    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress) ERC20(name, symbol) {
-        require(numberOfShares > 0); //TODO remove
+    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress, address shareholderDataAddress) ERC20(name, symbol) {
         scrutineer = IScrutineer(scrutineerAddress);
+        shareholderData = IShareholderData(shareholderDataAddress);
 
         //set sensible default values
         scrutineer.setDecisionParameters(2592000, 604800, 0, 1, 1, 2); //2592000s = 30 days, 604800s = 7 days
 
         doChangeOwner(msg.sender);
         issueShares(numberOfShares);
-        shareholders.push(address(this)); //mainly a trick to ensure that if shareholderIndex[shareholderAddress] == 0, then the shareholder has not been registered yet
     }
 
 
@@ -106,103 +102,36 @@ contract Share is ERC20 {
 
 
 
-    function getLockedUpAmount(address tokenAddress) public view returns (uint256) {
-        address[] storage exchanges = approvedExchangesByToken[tokenAddress];
-        IERC20 token = IERC20(tokenAddress);
-
-        uint256 lockedUpAmount = 0;
-        for (uint256 i = 0; i < exchanges.length; i++) {
-            lockedUpAmount += token.allowance(address(this), exchanges[i]);
-        }
-        return lockedUpAmount;
+    function getLockedUpAmount(address tokenAddress) external view returns (uint256) {
+        return shareholderData.getLockedUpAmount(tokenAddress);
     }
 
-    function getAvailableAmount(address tokenAddress) public view returns (uint256) {
-        IERC20 token = IERC20(tokenAddress);
-        return token.balanceOf(address(this)) - getLockedUpAmount(tokenAddress);
+    function getAvailableAmount(address tokenAddress) external view returns (uint256) {
+        return shareholderData.getAvailableAmount(tokenAddress);
     }
 
-    function getTreasuryShareCount() public view returns (uint256) { //return the number of shares held by the company
-        return balanceOf(address(this)) - getLockedUpAmount(address(this));
+    function getTreasuryShareCount() external view returns (uint256) { //return the number of shares held by the company
+        return shareholderData.getTreasuryShareCount();
     }
 
-    function getOutstandingShareCount() public view returns (uint256) { //return the number of shares not held by the company
-        return totalSupply() - balanceOf(address(this));
+    function getOutstandingShareCount() external view returns (uint256) { //return the number of shares not held by the company
+        return shareholderData.getOutstandingShareCount();
     }
 
     function getShareholderCount() external view returns (uint256) {
-        return shareholders.length - 1; //subtract shareholders[0], which is this contract
+        return shareholderData.getShareholderCount();
     }
 
     function registerShareholder(address shareholder) external returns (uint256) {
-        uint256 index = shareholderIndex[shareholder];
-        if (index == 0) { //the shareholder has not been registered yet
-            if (balanceOf(shareholder) > 0) { //only register if the address is an actual shareholder
-                index = shareholders.length;
-                shareholderIndex[shareholder] = index;
-                shareholders.push(shareholder);
-            }
-        }
-        return index; //when 0 is returned it means the address is no shareholder, otherwise the index of the shareholder is returned
+        return shareholderData.registerShareholder(shareholder);
     }
 
     function packShareholders() external isOwner { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
-        address[] memory old = shareholders; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
-        shareholders = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
-        shareholders.push(address(this));
-        uint256 packedIndex = 1;
-
-        for (uint256 i = 1; i < old.length; i++) {
-            address shareholder = old[i];
-            if (balanceOf(shareholder) > 0) {
-                shareholderIndex[shareholder] = packedIndex;
-                shareholders.push(shareholder);
-                packedIndex++;
-            } else {
-                shareholderIndex[shareholder] = 0;
-            }
-        }
-
-        if (getOutstandingShareCount() == 0) { //changes do not require approval anymore, resolve all pending votes
-            changeOwnerOnApproval();
-            changeDecisionParametersOnApproval();
-
-            //TODO resolve corporate action vote
-            //TODO resolve multiple! external proposal votes
-        }
-    }
-
-    function registerApprovedExchange(address tokenAddress, address exchange) internal {
-        mapping(address => uint256) storage approvedExchangeIndex = approvedExchangeIndexByToken[tokenAddress];
-        uint256 index = approvedExchangeIndex[exchange];
-        if (index == 0) { //the exchange has not been registered yet OR was the first registered exchange
-            address[] storage approvedExchanges = approvedExchangesByToken[tokenAddress];
-            if ((approvedExchanges.length == 0) || (approvedExchanges[0] != exchange)) { //the exchange has not been registered yet
-                index = approvedExchanges.length;
-                approvedExchangeIndex[exchange] = index;
-                approvedExchanges.push(exchange);
-            }
-        }
+        shareholderData.packShareholders();
     }
 
     function packApprovedExchanges(address tokenAddress) external isOwner {
-        mapping(address => uint256) storage approvedExchangeIndex = approvedExchangeIndexByToken[tokenAddress];
-        address[] memory old = approvedExchangesByToken[tokenAddress]; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
-        approvedExchangesByToken[tokenAddress] = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
-        address[] storage approvedExchanges = approvedExchangesByToken[tokenAddress];
-        uint256 packedIndex = 0;
-        IERC20 token = IERC20(tokenAddress);
-
-        for (uint256 i = 0; i < old.length; i++) {
-            address exchange = old[i];
-            if (token.allowance(address(this), exchange) > 0) {
-                approvedExchangeIndex[exchange] = packedIndex;
-                approvedExchanges.push(exchange);
-                packedIndex++;
-            } else {
-                approvedExchangeIndex[exchange] = 0;
-            }
-        }
+        shareholderData.packApprovedExchanges(tokenAddress);
     }
 
 
@@ -212,13 +141,13 @@ contract Share is ERC20 {
     }
 
     function getProposedDecisionParameters(uint256 id) external view returns (DecisionParametersType, uint64, uint64, uint32, uint32, uint32, uint32) {
-        DecisionParametersData storage dP = decisionParameters[id];
+        DecisionParametersData storage dP = decisionParametersData[id];
         return (dP.decisionType, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256) {
-        CorporateActionData storage corporateAction = corporateActions[id];
-        return (corporateAction.decisionType, corporateAction.numberOfShares, corporateAction.exchange, corporateAction.currency, corporateAction.amount, corporateAction.optionalCurrency, corporateAction.optionalAmount);
+        CorporateActionData storage cA = corporateActionsData[id];
+        return (cA.decisionType, cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
     }
 
 
@@ -245,7 +174,7 @@ contract Share is ERC20 {
         }
     }
 
-    function changeOwnerOnApproval() public {
+    function changeOwnerOnApproval() external override {
         uint256 id = pendingNewOwnerId;
         if (id != 0) {
             bool resultHasBeenUpdated = scrutineer.resolveVote(pendingNewOwnerId);
@@ -312,7 +241,7 @@ contract Share is ERC20 {
 
                 emit DecisionParametersChange(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
-                DecisionParametersData storage dP = decisionParameters[id];
+                DecisionParametersData storage dP = decisionParametersData[id];
                 dP.decisionType = decisionType;
                 dP.decisionTime = decisionTime;
                 dP.executionTime = executionTime;
@@ -328,7 +257,7 @@ contract Share is ERC20 {
         }
     }
 
-    function changeDecisionParametersOnApproval() public {
+    function changeDecisionParametersOnApproval() external override {
         uint256 id = pendingDecisionParametersId;
         if (id != 0) {
             bool resultHasBeenUpdated = scrutineer.resolveVote(id);
@@ -336,7 +265,7 @@ contract Share is ERC20 {
             if (resultHasBeenUpdated) {
                 (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
 
-                DecisionParametersData storage dP = decisionParameters[id];
+                DecisionParametersData storage dP = decisionParametersData[id];
                 DecisionParametersType decisionType = dP.decisionType;
                 uint64 decisionTime = dP.decisionTime;
                 uint64 executionTime = dP.executionTime;
@@ -364,7 +293,7 @@ contract Share is ERC20 {
             if (withdrawalWasSuccessful) {
                 (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
 
-                DecisionParametersData storage dP = decisionParameters[id];
+                DecisionParametersData storage dP = decisionParametersData[id];
 
                 pendingDecisionParametersId = 0;
 
@@ -389,7 +318,7 @@ contract Share is ERC20 {
 
     function destroyShares(uint256 numberOfShares) external isOwner {
         if (pendingCorporateActionId == 0) {
-            require(getTreasuryShareCount() >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
+            require(shareholderData.getTreasuryShareCount() >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -405,12 +334,12 @@ contract Share is ERC20 {
 
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
         if (pendingCorporateActionId == 0) {
-            require(getTreasuryShareCount() >= numberOfShares, "Cannot offer more shares than the number of treasury shares");
+            require(shareholderData.getTreasuryShareCount() >= numberOfShares, "Cannot offer more shares than the number of treasury shares");
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                registerApprovedExchange(address(this), exchangeAddress);
+                shareholderData.registerApprovedExchange(address(this), exchangeAddress);
                 increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.ask(address(this), numberOfShares, currency, price);
@@ -425,12 +354,12 @@ contract Share is ERC20 {
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
         if (pendingCorporateActionId == 0) {
             uint256 totalPrice = numberOfShares*price;
-            require(getAvailableAmount(currency) >= totalPrice, "This contract does not have enough of the ERC20 token to buy back all the shares");
+            require(shareholderData.getAvailableAmount(currency) >= totalPrice, "This contract does not have enough of the ERC20 token to buy back all the shares");
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                registerApprovedExchange(currency, exchangeAddress);
+                shareholderData.registerApprovedExchange(currency, exchangeAddress);
                 IERC20(currency).safeIncreaseAllowance(exchangeAddress, totalPrice); //only send to safe exchanges, the total price is locked up
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.bid(address(this), numberOfShares, currency, price);
@@ -443,7 +372,7 @@ contract Share is ERC20 {
     }
 
     function doRequestCorporateAction(uint256 id, CorporateActionType decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
-        CorporateActionData storage corporateAction = corporateActions[id];
+        CorporateActionData storage corporateAction = corporateActionsData[id];
         corporateAction.decisionType = decisionType;
         corporateAction.numberOfShares = numberOfShares;
         if (exchange != address(0)) { //only store the exchange address if this is relevant
