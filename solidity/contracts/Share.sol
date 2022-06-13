@@ -223,7 +223,7 @@ contract Share is ERC20 {
 
 
 
-    function changeOwner(address newOwner) public isOwner {
+    function changeOwner(address newOwner) external isOwner {
         doChangeOwner(newOwner);
     }
 

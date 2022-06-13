@@ -54,19 +54,19 @@ let parsed = JSON.parse(compilation);
 let contracts = {};
 if (parsed.errors) {
   console.log(parsed.errors)
-} else {
-  let allContracts = parsed.contracts;
-  contracts.TestGold = allContracts['TestGold.sol'].TestGold;
-  contracts.Scrutineer = allContracts['Scrutineer.sol'].Scrutineer;
-  contracts.Share = allContracts['Share.sol'].Share;
-  contracts.Exchange = allContracts['Exchange.sol'].Exchange;
 }
 
+const allContracts = parsed.contracts;
+contracts.TestGold = allContracts['TestGold.sol'].TestGold;
+contracts.Scrutineer = allContracts['Scrutineer.sol'].Scrutineer;
+contracts.Share = allContracts['Share.sol'].Share;
+contracts.Exchange = allContracts['Exchange.sol'].Exchange;
+
 //evm.bytecode.object is in hexadecimal notation, so the length in bytes is half the length of the string 
-let testGoldSize = contracts.TestGold.evm.bytecode.object.length/2;
-let scrutineerSize = contracts.Scrutineer.evm.bytecode.object.length/2;
-let shareSize = contracts.Share.evm.bytecode.object.length/2;
-let exchangeSize = contracts.Exchange.evm.bytecode.object.length/2;
+const testGoldSize = contracts.TestGold.evm.bytecode.object.length/2;
+const scrutineerSize = contracts.Scrutineer.evm.bytecode.object.length/2;
+const shareSize = contracts.Share.evm.bytecode.object.length/2;
+const exchangeSize = contracts.Exchange.evm.bytecode.object.length/2;
 
 console.log('TestGold contract size: ' + testGoldSize + ' bytes');
 console.log('Scrutineer contract size: ' + scrutineerSize + ' bytes');
