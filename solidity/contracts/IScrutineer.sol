@@ -34,7 +34,8 @@ interface IScrutineer {
     function getNumberOfProposals(address owner) external view returns (uint256);
     function getDecisionToken(address owner, uint256 id) external view returns (address); //the reference implementation assumes that the address is an IERC20 token, but the interface does not need to require this
     function getDecisionTimes(address owner, uint256 id) external view returns (uint64, uint64, uint64);
-    function getVoteResult(address owner, uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
+    function getDetailedVoteResult(address owner, uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
+    function getVoteResult(address owner, uint256 id) external view returns (VoteResult);
 
     function propose(address decisionToken) external returns (uint256, bool);
     function propose(address decisionToken, uint256 voteType) external returns (uint256, bool);

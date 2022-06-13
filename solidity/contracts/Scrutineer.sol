@@ -98,7 +98,7 @@ contract Scrutineer is IScrutineer {
         return (startTime, decisionTime, executionTime);
     }
 
-    function getVoteResult(address owner, uint256 id) external view override returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256) {
+    function getDetailedVoteResult(address owner, uint256 id) external view override returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256) {
         VoteParameters storage vP = proposals[owner][id];
         DecisionParameters storage dP = vP.decisionParameters;
         VoteResult result = vP.result;
@@ -106,6 +106,16 @@ contract Scrutineer is IScrutineer {
             return (VoteResult.EXPIRED, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0);
         } else {
             return (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, vP.inFavor, vP.against, vP.abstain, vP.noVote);
+        }
+    }
+
+    function getVoteResult(address owner, uint256 id) external view override returns (VoteResult) {
+        VoteParameters storage vP = proposals[owner][id];
+        VoteResult result = vP.result;
+        if ((result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.EXECUTION_HAS_ENDED)) {
+            return VoteResult.EXPIRED;
+        } else {
+            return result;
         }
     }
 
@@ -242,10 +252,11 @@ contract Scrutineer is IScrutineer {
     }
 
     function getVotingStage(VoteParameters storage voteParameters) internal view returns (VotingStage) {
-        uint256 votingCutOff = voteParameters.startTime + voteParameters.decisionParameters.decisionTime;
-        return (block.timestamp <= votingCutOff) ?                                                   VotingStage.VOTING_IN_PROGRESS
-             : (block.timestamp <= votingCutOff + voteParameters.decisionParameters.executionTime) ? VotingStage.VOTING_HAS_ENDED
-             :                                                                                       VotingStage.EXECUTION_HAS_ENDED;
+        DecisionParameters storage dP = voteParameters.decisionParameters;
+        uint256 votingCutOff = voteParameters.startTime + dP.decisionTime;
+        return (block.timestamp <= votingCutOff) ?                    VotingStage.VOTING_IN_PROGRESS
+             : (block.timestamp <= votingCutOff + dP.executionTime) ? VotingStage.VOTING_HAS_ENDED
+             :                                                        VotingStage.EXECUTION_HAS_ENDED;
     }
 
     function verifyERC20(address decisionToken) internal view {

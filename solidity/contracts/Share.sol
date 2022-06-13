@@ -160,7 +160,7 @@ contract Share is ERC20, IShare {
             bool resultHasBeenUpdated = scrutineer.resolveVote(pendingNewOwnerId);
 
             if (resultHasBeenUpdated) {
-                (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
+                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 address newOwner = newOwners[id];
 
@@ -181,7 +181,7 @@ contract Share is ERC20, IShare {
             bool withdrawalWasSuccessful = scrutineer.withdrawVote(id);
 
             if (withdrawalWasSuccessful) {
-                (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
+                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 pendingNewOwnerId = 0;
 
@@ -243,7 +243,7 @@ contract Share is ERC20, IShare {
             bool resultHasBeenUpdated = scrutineer.resolveVote(id);
 
             if (resultHasBeenUpdated) {
-                (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
+                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 DecisionParametersData storage dP = decisionParametersData[id];
                 DecisionParametersType decisionType = dP.decisionType;
@@ -271,7 +271,7 @@ contract Share is ERC20, IShare {
             bool withdrawalWasSuccessful = scrutineer.withdrawVote(id);
 
             if (withdrawalWasSuccessful) {
-                (VoteResult voteResult,,,,,,,,) = scrutineer.getVoteResult(address(this), id);
+                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 DecisionParametersData storage dP = decisionParametersData[id];
 
