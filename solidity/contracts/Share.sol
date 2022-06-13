@@ -46,8 +46,8 @@ contract Share is ERC20, IShare {
     event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
 
     //actions changing how decisions are made
-    event RequestDecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event DecisionParametersChange(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event RequestDecisionParameters(uint256 indexed id, DecisionParametersType indexed decisionType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event DecisionParameters(uint256 indexed id, DecisionParametersType indexed decisionType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
     //corporate actions
     event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
@@ -155,37 +155,30 @@ contract Share is ERC20, IShare {
     }
 
     function changeOwnerOnApproval() external override {
+        resolveNewOwner(false);
+    }
+
+    function withdrawChangeOwnerRequest() external isOwner {
+        resolveNewOwner(true);
+    }
+
+    function resolveNewOwner(bool withdraw) internal {
         uint256 id = pendingNewOwnerId;
         if (id != 0) {
-            bool resultHasBeenUpdated = scrutineer.resolveVote(pendingNewOwnerId);
+           bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
 
             if (resultHasBeenUpdated) {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 address newOwner = newOwners[id];
 
-                if (voteResult == VoteResult.APPROVED) {
+                if (!withdraw && (voteResult == VoteResult.APPROVED)) {
                     owner = newOwner;
                 }
 
                 pendingNewOwnerId = 0;
 
                 emit NewOwner(id, newOwner, voteResult);
-            }
-        }
-    }
-
-    function withdrawChangeOwnerRequest() external isOwner {
-        uint256 id = pendingNewOwnerId;
-        if (id != 0) {
-            bool withdrawalWasSuccessful = scrutineer.withdrawVote(id);
-
-            if (withdrawalWasSuccessful) {
-                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
-
-                pendingNewOwnerId = 0;
-
-                emit NewOwner(id, newOwners[id], voteResult);
             }
         }
     }
@@ -219,7 +212,7 @@ contract Share is ERC20, IShare {
             if (noSharesOutstanding) {
                 scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
 
-                emit DecisionParametersChange(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit DecisionParameters(id, decisionType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
                 DecisionParametersData storage dP = decisionParametersData[id];
                 dP.decisionType = decisionType;
@@ -232,15 +225,23 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = id;
 
-                emit RequestDecisionParametersChange(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit RequestDecisionParameters(id, decisionType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
 
     function changeDecisionParametersOnApproval() external override {
+        resolveDecisionParametersChange(false);
+    }
+
+    function withdrawChangeDecisionParametersRequest() external isOwner {
+        resolveDecisionParametersChange(true);
+    }
+
+    function resolveDecisionParametersChange(bool withdraw) internal {
         uint256 id = pendingDecisionParametersId;
         if (id != 0) {
-            bool resultHasBeenUpdated = scrutineer.resolveVote(id);
+            bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
 
             if (resultHasBeenUpdated) {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
@@ -254,30 +255,13 @@ contract Share is ERC20, IShare {
                 uint32 majorityNumerator = dP.majorityNumerator;
                 uint32 majorityDenominator = dP.majorityDenominator;
 
-                if (voteResult == VoteResult.APPROVED) {
+                if (!withdraw && (voteResult == VoteResult.APPROVED)) {
                     scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
                 }
 
                 pendingDecisionParametersId = 0;
 
-                emit DecisionParametersChange(id, decisionType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-            }
-        }
-    }
-
-    function withdrawDecisionParametersRequest() external isOwner {
-        uint256 id = pendingDecisionParametersId;
-        if (id != 0) {
-            bool withdrawalWasSuccessful = scrutineer.withdrawVote(id);
-
-            if (withdrawalWasSuccessful) {
-                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
-
-                DecisionParametersData storage dP = decisionParametersData[id];
-
-                pendingDecisionParametersId = 0;
-
-                emit DecisionParametersChange(id, dP.decisionType, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+                emit DecisionParameters(id, decisionType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
