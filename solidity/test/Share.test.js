@@ -39,9 +39,9 @@ beforeEach(async () => {
   share = await new web3.eth.Contract(contracts.Share.abi)
     .deploy({
       data: contracts.Share.evm.bytecode.object,
-      arguments: ['The Blockchain Company', 'TBC', 10000, scrutineer.options.address, shareInfo.options.address],
+      arguments: ['The Blockchain Company', 'TBC', scrutineer.options.address, shareInfo.options.address],
     })
-    .send({ from: accounts[0], gas: '5000000' });
+    .send({ from: accounts[0], gas: '6000000' });
 });
     
 describe('Share creation', () => {

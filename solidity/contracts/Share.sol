@@ -11,7 +11,7 @@ import 'contracts/IShareInfo.sol';
 import 'contracts/IExchange.sol';
 
 enum CorporateActionType {
-    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, WITHDRAW_FUNDS, DISTRIBUTE_DIVIDEND
+    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, WITHDRAW_FUNDS, DISTRIBUTE_DIVIDEND, CANCEL_ORDER
 }
 
 struct CorporateActionData {
@@ -61,12 +61,10 @@ contract Share is ERC20, IShare {
         _;
     }
 
-    constructor(string memory name, string memory symbol, uint256 numberOfShares, address scrutineerAddress, address shareInfoAddress) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, address scrutineerAddress, address shareInfoAddress) ERC20(name, symbol) {
         scrutineer = IScrutineer(scrutineerAddress);
         shareInfo = IShareInfo(shareInfoAddress);
-
         owner = msg.sender;
-        _mint(address(this), numberOfShares);
     }
 
 
@@ -89,11 +87,11 @@ contract Share is ERC20, IShare {
         return shareInfo.registerShareholder(shareholder);
     }
 
-    function packShareholders() external isOwner { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
+    function packShareholders() external { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
         shareInfo.packShareholders();
     }
 
-    function packApprovedExchanges(address tokenAddress) external isOwner {
+    function packApprovedExchanges(address tokenAddress) external {
         shareInfo.packApprovedExchanges(tokenAddress);
     }
 
@@ -120,9 +118,7 @@ contract Share is ERC20, IShare {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                owner = newOwner;
-
-                emit NewOwner(id, newOwner, VoteResult.NO_OUTSTANDING_SHARES);
+                doChangeOwner(id, VoteResult.NO_OUTSTANDING_SHARES, newOwner);
             } else {
                 newOwners[id] = newOwner;
 
@@ -149,17 +145,19 @@ contract Share is ERC20, IShare {
             if (resultHasBeenUpdated) {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
-                address newOwner = newOwners[id];
-
-                if (!withdraw && (voteResult == VoteResult.APPROVED)) {
-                    owner = newOwner;
-                }
+                doChangeOwner(id, voteResult, newOwners[id]);
 
                 pendingNewOwnerId = 0;
-
-                emit NewOwner(id, newOwner, voteResult);
             }
         }
+    }
+
+    function doChangeOwner(uint256 id, VoteResult voteResult, address newOwner) internal {
+        if (isApproved(voteResult)) {
+            owner = newOwner;
+        }
+
+        emit NewOwner(id, newOwner, voteResult);
     }
 
     function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external isOwner {
@@ -167,9 +165,7 @@ contract Share is ERC20, IShare {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-
-                emit DecisionParametersChange(id, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                doSetDecisionParameters(id, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
                 DecisionParameters storage dP = decisionParametersData[id];
                 dP.decisionTime = decisionTime;
@@ -203,140 +199,69 @@ contract Share is ERC20, IShare {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 DecisionParameters storage dP = decisionParametersData[id];
-                uint64 decisionTime = dP.decisionTime;
-                uint64 executionTime = dP.executionTime;
-                uint32 quorumNumerator = dP.quorumNumerator;
-                uint32 quorumDenominator = dP.quorumDenominator;
-                uint32 majorityNumerator = dP.majorityNumerator;
-                uint32 majorityDenominator = dP.majorityDenominator;
-
-                if (!withdraw && (voteResult == VoteResult.APPROVED)) {
-                    scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-                }
+                doSetDecisionParameters(id, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
 
                 pendingDecisionParametersId = 0;
-
-                emit DecisionParametersChange(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
 
-    function issueShares(uint256 numberOfShares) public isOwner {
+    function doSetDecisionParameters(uint256 id, VoteResult voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
+        if (isApproved(voteResult)) {
+            scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+        }
+
+        emit DecisionParametersChange(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+    }
+
+    function issueShares(uint256 numberOfShares) external {
+        doCorporateAction(CorporateActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+    }
+
+    function destroyShares(uint256 numberOfShares) external {
+        doCorporateAction(CorporateActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+    }
+
+    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external {
+        require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
+        doCorporateAction(CorporateActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), 0);
+    }
+
+    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external {
+        uint256 totalPrice = numberOfShares*price;
+        require(shareInfo.getAvailableAmount(address(this), currency) >= totalPrice);
+        doCorporateAction(CorporateActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), 0);
+    }
+
+    function withdrawFunds(address destination, address currency, uint256 amount) external {
+        require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
+        doCorporateAction(CorporateActionType.WITHDRAW_FUNDS, shareInfo.getMaxOutstandingShareCount(address(this)), destination, currency, amount, address(0), 0);
+    }
+
+    function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external {
+        uint256 maxOutstandingShareCount = shareInfo.getMaxOutstandingShareCount(address(this));
+        uint256 totalDistribution = maxOutstandingShareCount*amount;
+        require(shareInfo.getAvailableAmount(address(this), currency) >= totalDistribution);
+
+        bool isOptional = (optionalCurrency != address(0));
+        uint256 totalOptionalDistribution = 0;
+        if (isOptional) {
+            totalOptionalDistribution = maxOutstandingShareCount*optionalAmount;
+            require(shareInfo.getAvailableAmount(address(this), optionalCurrency) >= totalOptionalDistribution);
+        }
+
+        doCorporateAction(CorporateActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
+    }
+
+    function doCorporateAction(CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
         if (pendingCorporateActionId == 0) {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
             if (noSharesOutstanding) {
-                _mint(address(this), numberOfShares);
-
-                emit CorporateAction(id, CorporateActionType.ISSUE_SHARES, VoteResult.NO_OUTSTANDING_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+                executeCorporateAction(id, VoteResult.NO_OUTSTANDING_SHARES, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
             } else {
-                doRequestCorporateAction(id, CorporateActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+                doRequestCorporateAction(id, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
             }
-        }
-    }
-
-    function destroyShares(uint256 numberOfShares) external isOwner {
-        if (pendingCorporateActionId == 0) {
-            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
-
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
-
-            if (noSharesOutstanding) {
-                _burn(address(this), numberOfShares);
-
-                emit CorporateAction(id, CorporateActionType.DESTROY_SHARES, VoteResult.NO_OUTSTANDING_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
-            } else {
-                doRequestCorporateAction(id, CorporateActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
-            }
-        }
-    }
-
-    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
-        if (pendingCorporateActionId == 0) {
-            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
-
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
-
-            if (noSharesOutstanding) {
-                shareInfo.registerApprovedExchange(address(this), exchangeAddress);
-                increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
-                IExchange exchange = IExchange(exchangeAddress);
-                exchange.ask(address(this), numberOfShares, currency, price);
-
-                emit CorporateAction(id, CorporateActionType.RAISE_FUNDS, VoteResult.NO_OUTSTANDING_SHARES, numberOfShares, exchangeAddress, currency, price, address(0), 0);
-            } else {
-                doRequestCorporateAction(id, CorporateActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), 0);
-            }
-        }
-    }
-
-    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
-        if (pendingCorporateActionId == 0) {
-            uint256 totalPrice = numberOfShares*price;
-            require(shareInfo.getAvailableAmount(address(this), currency) >= totalPrice);
-
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
-
-            if (noSharesOutstanding) {
-                shareInfo.registerApprovedExchange(currency, exchangeAddress);
-                IERC20(currency).safeIncreaseAllowance(exchangeAddress, totalPrice); //only send to safe exchanges, the total price is locked up
-                IExchange exchange = IExchange(exchangeAddress);
-                exchange.bid(address(this), numberOfShares, currency, price);
-
-                emit CorporateAction(id, CorporateActionType.BUY_BACK, VoteResult.NO_OUTSTANDING_SHARES, numberOfShares, exchangeAddress, currency, price, address(0), 0);
-            } else {
-                doRequestCorporateAction(id, CorporateActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), 0);
-            }
-        }
-    }
-
-    function withdrawFunds(address destination, address currency, uint256 amount) external isOwner {
-        if (pendingCorporateActionId == 0) {
-            require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
-
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
-
-            if (noSharesOutstanding) {
-                IERC20(currency).safeTransfer(destination, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
-
-                emit CorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, VoteResult.NO_OUTSTANDING_SHARES, 0, destination, currency, amount, address(0), 0);
-            } else {
-                doRequestCorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, shareInfo.getMaxOutstandingShareCount(address(this)), destination, currency, amount, address(0), 0);
-            }
-        }
-    }
-
-    function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external isOwner {
-        if (pendingCorporateActionId == 0) {
-            uint256 maxOutstandingShareCount = shareInfo.getMaxOutstandingShareCount(address(this));
-            uint256 totalDistribution = maxOutstandingShareCount*amount;
-            require(shareInfo.getAvailableAmount(address(this), currency) >= totalDistribution);
-
-            bool isOptional = (optionalCurrency != address(0));
-            uint256 totalOptionalDistribution = 0;
-            if (isOptional) {
-                totalOptionalDistribution = maxOutstandingShareCount*optionalAmount;
-                require(shareInfo.getAvailableAmount(address(this), optionalCurrency) >= totalOptionalDistribution);
-            }
-
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
-
-            if (noSharesOutstanding) { //we choose for the default dividend
-                doDistributeDividend(currency, amount);
-
-                emit CorporateAction(id, CorporateActionType.DISTRIBUTE_DIVIDEND, VoteResult.NO_OUTSTANDING_SHARES, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
-            } else {
-                doRequestCorporateAction(id, CorporateActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
-            }
-        }
-    }
-
-    function doDistributeDividend(address currency, uint256 amount) internal { //executing the code inline is not possible because of "Stack too deep, try removing local variables."
-        address[] memory shareholders = shareInfo.getShareholders();
-        for (uint256 i = 0; i < shareholders.length; i++) {
-            address shareholder = shareholders[i];
-            uint256 numberOfShares = balanceOf(shareholder);
-            IERC20(currency).safeTransfer(shareholder, numberOfShares*amount);
         }
     }
 
@@ -344,17 +269,11 @@ contract Share is ERC20, IShare {
         CorporateActionData storage corporateAction = corporateActionsData[id];
         corporateAction.decisionType = decisionType;
         corporateAction.numberOfShares = numberOfShares;
-        if (exchange != address(0)) { //only store the exchange address if this is relevant
-            corporateAction.exchange = exchange;
-        }
-        if (currency != address(0)) { //only store currency info if this is relevant
-            corporateAction.currency = currency;
-            corporateAction.amount = amount;
-        }
-        if (optionalCurrency != address(0)) { //only store optionalCurrency info if this is relevant
-            corporateAction.optionalCurrency = optionalCurrency;
-            corporateAction.optionalAmount = optionalAmount;
-        }
+        corporateAction.exchange = exchange;
+        corporateAction.currency = currency;
+        corporateAction.amount = amount;
+        corporateAction.optionalCurrency = optionalCurrency;
+        corporateAction.optionalAmount = optionalAmount;
 
         pendingCorporateActionId = id;
 
@@ -378,42 +297,49 @@ contract Share is ERC20, IShare {
             if (resultHasBeenUpdated) {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
-                CorporateActionData storage corporateAction = corporateActionsData[id];
-                CorporateActionType decisionType = corporateAction.decisionType;
-                uint256 numberOfShares = corporateAction.numberOfShares;
-                address exchangeAddress = corporateAction.exchange;
-                address currency = corporateAction.currency;
-                uint256 amount = corporateAction.amount;
-                address optionalCurrency = corporateAction.optionalCurrency;
-                uint256 optionalAmount = corporateAction.optionalAmount;
+                CorporateActionData storage cA = corporateActionsData[id];
 
-                if (!withdraw && (voteResult == VoteResult.APPROVED)) {
-                    if (decisionType == CorporateActionType.ISSUE_SHARES) {
-                        _mint(address(this), numberOfShares);
-                    } else if (decisionType == CorporateActionType.DESTROY_SHARES) {
-                        _burn(address(this), numberOfShares);
-                    } else if (decisionType == CorporateActionType.RAISE_FUNDS) {
-                        shareInfo.registerApprovedExchange(address(this), exchangeAddress);
-                        increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
-                        IExchange exchange = IExchange(exchangeAddress);
-                        exchange.ask(address(this), numberOfShares, currency, amount);
-                    } else if (decisionType == CorporateActionType.BUY_BACK) {
-                        shareInfo.registerApprovedExchange(currency, exchangeAddress);
-                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
-                        IExchange exchange = IExchange(exchangeAddress);
-                        exchange.bid(address(this), numberOfShares, currency, amount);
-                    } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
-                        IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
-                    } else if (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND) {
-                        //TODO how to deal with optional dividend, how do we know the vote?
-                    }
-                }
+                executeCorporateAction(id, voteResult, cA.decisionType, cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
 
                 pendingNewOwnerId = 0;
-
-                emit CorporateAction(id, decisionType, voteResult, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
             }
         }
+    }
+
+    function executeCorporateAction(uint256 id, VoteResult voteResult, CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
+        if (isApproved(voteResult)) {
+            if (decisionType == CorporateActionType.ISSUE_SHARES) {
+                _mint(address(this), numberOfShares);
+            } else if (decisionType == CorporateActionType.DESTROY_SHARES) {
+                _burn(address(this), numberOfShares);
+            } else if (decisionType == CorporateActionType.RAISE_FUNDS) {
+                shareInfo.registerApprovedExchange(address(this), exchangeAddress);
+                increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
+                IExchange exchange = IExchange(exchangeAddress);
+                exchange.ask(address(this), numberOfShares, currency, amount);
+            } else if (decisionType == CorporateActionType.BUY_BACK) {
+                shareInfo.registerApprovedExchange(currency, exchangeAddress);
+                IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                IExchange exchange = IExchange(exchangeAddress);
+                exchange.bid(address(this), numberOfShares, currency, amount);
+            } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
+                IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+            } else if (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND) {
+                address[] memory shareholders = shareInfo.getShareholders();
+                for (uint256 i = 0; i < shareholders.length; i++) {
+                    address shareholder = shareholders[i];
+                    uint256 shareholderStake = balanceOf(shareholder);
+                    IERC20(currency).safeTransfer(shareholder, shareholderStake*amount);
+                }
+                //TODO how to deal with optional dividend, how do we know the vote?  //TODO also handle the case of VoteResult.NO_OUTSTANDING_SHARES
+            }
+        }
+
+        emit CorporateAction(id, decisionType, voteResult, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+    }
+
+    function isApproved(VoteResult voteResult) internal pure returns (bool) {
+        return ((voteResult == VoteResult.APPROVED) || (voteResult == VoteResult.NO_OUTSTANDING_SHARES));
     }
 
 /*
