@@ -11,15 +11,15 @@ import 'contracts/IShareInfo.sol';
 import 'contracts/IExchange.sol';
 
 enum CorporateActionType {
-    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, DISTRIBUTE_DIVIDEND
+    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, WITHDRAW_FUNDS, DISTRIBUTE_DIVIDEND
 }
 
 struct CorporateActionData {
     CorporateActionType decisionType;
-    address exchange; //only relevant for RAISE_FUNDS and BUY_BACK, pack together with decisionType
-    uint256 numberOfShares; //the number of shares created or destroyed for ISSUE_SHARES or DESTROY_SHARES, the number of shares to sell or buy back for RAISE_FUNDS and BUY_BACK and the number of shares receiving dividend for DISTRIBUTE_DIVIDEND
+    address exchange; //only relevant for RAISE_FUNDS, BUY_BACK and WITHDRAW_FUNDS, pack together with decisionType
+    uint256 numberOfShares; //the number of shares created or destroyed for ISSUE_SHARES or DESTROY_SHARES, the number of shares to sell or buy back for RAISE_FUNDS and BUY_BACK and the (max) outstanding number of shares for WITHDRAW_FUNDS and DISTRIBUTE_DIVIDEND
     address currency; //ERC20 token
-    uint256 amount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount of dividend to be distributed per share for DISTRIBUTE_DIVIDEND
+    uint256 amount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount to withdraw for WITHDRAW_FUNDS or to distribute per share for DISTRIBUTE_DIVIDEND
     address optionalCurrency; //ERC20 token
     uint256 optionalAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
 }
@@ -116,10 +116,6 @@ contract Share is ERC20, IShare {
 
 
     function changeOwner(address newOwner) external isOwner {
-        doChangeOwner(newOwner);
-    }
-
-    function doChangeOwner(address newOwner) internal { //does not have the isOwner modifier
         if (pendingNewOwnerId == 0) {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -241,7 +237,7 @@ contract Share is ERC20, IShare {
 
     function destroyShares(uint256 numberOfShares) external isOwner {
         if (pendingCorporateActionId == 0) {
-            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares, "Cannot destroy more shares than the number of treasury shares");
+            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -257,7 +253,7 @@ contract Share is ERC20, IShare {
 
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
         if (pendingCorporateActionId == 0) {
-            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares, "Cannot offer more shares than the number of treasury shares");
+            require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -277,7 +273,7 @@ contract Share is ERC20, IShare {
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external isOwner {
         if (pendingCorporateActionId == 0) {
             uint256 totalPrice = numberOfShares*price;
-            require(shareInfo.getAvailableAmount(address(this), currency) >= totalPrice, "This contract does not have enough of the ERC20 token to buy back all the shares");
+            require(shareInfo.getAvailableAmount(address(this), currency) >= totalPrice);
 
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -290,6 +286,22 @@ contract Share is ERC20, IShare {
                 emit CorporateAction(id, CorporateActionType.BUY_BACK, VoteResult.NO_OUTSTANDING_SHARES, numberOfShares, exchangeAddress, currency, price, address(0), 0);
             } else {
                 doRequestCorporateAction(id, CorporateActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), 0);
+            }
+        }
+    }
+
+    function withdrawFunds(address destination, address currency, uint256 amount) external isOwner {
+        if (pendingCorporateActionId == 0) {
+            require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
+
+            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
+
+            if (noSharesOutstanding) {
+                IERC20(currency).safeTransfer(destination, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+
+                emit CorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, VoteResult.NO_OUTSTANDING_SHARES, 0, destination, currency, amount, address(0), 0);
+            } else { //the number of shares >= getOutstandingShareCount() == share.totalSupply() - share.balanceOf(shareAddress), we are also counting the shares that have been locked up in exchanges and may be sold
+                doRequestCorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, totalSupply() - shareInfo.getTreasuryShareCount(address(this)), destination, currency, amount, address(0), 0);
             }
         }
     }
@@ -316,6 +328,58 @@ contract Share is ERC20, IShare {
     }
 
 
+    function corporateActionOnApproval() external override {
+        resolveCorporateAction(false);
+    }
+
+    function withdrawCorporateActionRequest() external isOwner {
+        resolveCorporateAction(true);
+    }
+
+    function resolveCorporateAction(bool withdraw) internal {
+        uint256 id = pendingNewOwnerId;
+        if (id != 0) {
+           bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
+
+            if (resultHasBeenUpdated) {
+                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+
+                CorporateActionData storage corporateAction = corporateActionsData[id];
+                CorporateActionType decisionType = corporateAction.decisionType;
+                uint256 numberOfShares = corporateAction.numberOfShares;
+                address exchangeAddress = corporateAction.exchange;
+                address currency = corporateAction.currency;
+                uint256 amount = corporateAction.amount;
+                address optionalCurrency = corporateAction.optionalCurrency;
+                uint256 optionalAmount = corporateAction.optionalAmount;
+
+                if (!withdraw && (voteResult == VoteResult.APPROVED)) {
+                    if (decisionType == CorporateActionType.ISSUE_SHARES) {
+                        _mint(address(this), numberOfShares);
+                    } else if (decisionType == CorporateActionType.DESTROY_SHARES) {
+                        _burn(address(this), numberOfShares);
+                    } else if (decisionType == CorporateActionType.RAISE_FUNDS) {
+                        shareInfo.registerApprovedExchange(address(this), exchangeAddress);
+                        increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
+                        IExchange exchange = IExchange(exchangeAddress);
+                        exchange.ask(address(this), numberOfShares, currency, amount);
+                    } else if (decisionType == CorporateActionType.BUY_BACK) {
+                        shareInfo.registerApprovedExchange(currency, exchangeAddress);
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                        IExchange exchange = IExchange(exchangeAddress);
+                        exchange.bid(address(this), numberOfShares, currency, amount);
+                    } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
+                        IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+                    }
+                }
+
+                pendingNewOwnerId = 0;
+
+                emit CorporateAction(id, decisionType, voteResult, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+            }
+        }
+    }
+
 
 /*
     function distributeDividend(uint256 numberOfShares, address currency, uint256 amount) external isOwner {
@@ -334,5 +398,5 @@ contract Share is ERC20, IShare {
     //TODO approve external proposals
     //TODO withdraw external proposals
 
-    //TODO think about how a company can withdraw funds acquired e.g. through raising funds, may need approval as well!
+    //TODO allow cancelling order on an exchange!
 }

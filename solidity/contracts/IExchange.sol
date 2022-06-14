@@ -6,5 +6,4 @@ interface IExchange {
     function ask(address asset, uint256 amount, address currency, uint256 price) external;
     function bid(address asset, uint256 amount, address currency, uint256 price) external;
     function cancel(uint256 orderId) external;
-    function collect() external;
 }
