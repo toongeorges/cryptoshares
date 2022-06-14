@@ -5,7 +5,7 @@ pragma solidity ^0.8.9;
 import 'contracts/IScrutineer.sol';
 
 enum CorporateActionType {
-    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, CANCEL_ORDER, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, WITHDRAW_FUNDS
+    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, CANCEL_ORDER, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, WITHDRAW_FUNDS
 }
 
 interface IShare {
@@ -43,6 +43,14 @@ interface IShare {
       amount: the id of the order that needs to be canceled
       optionalCurrency: not applicable
       optionalAmount: not applicable
+
+      for REVERSE_SPLIT:
+      numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
+      exchange: not applicable
+      currency: the currency for which 1 fractional share that cannot be reverse split will be compensated
+      amount: the amount for which 1 fractional share that cannot be reverse split will be compensated
+      optionalCurrency: not applicable
+      optionalAmount: the reverse split ratio, optionalAmount shares will become 1 share
 
       for DISTRIBUTE_DIVIDEND and DISTRIBUTE_OPTIONAL_DIVIDEND
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
@@ -83,8 +91,9 @@ interface IShare {
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external;
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external;
     function cancelOrder(address exchangeAddress, uint256 orderId) external;
-    function withdrawFunds(address destination, address currency, uint256 amount) external;
+    function reverseSplit(address currency, uint256 amount, uint256 reverseSplitToOne) external;
     function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external;
+    function withdrawFunds(address destination, address currency, uint256 amount) external;
     function corporateActionOnApproval() external;
     function withdrawCorporateActionRequest() external;
 }

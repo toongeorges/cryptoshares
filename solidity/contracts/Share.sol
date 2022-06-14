@@ -212,7 +212,14 @@ contract Share is ERC20, IShare {
     }
 
     function cancelOrder(address exchangeAddress, uint256 orderId) external override {
-        doCorporateAction(CorporateActionType.CANCEL_ORDER, shareInfo.getMaxOutstandingShareCount(address(this)), exchangeAddress, address(0), orderId, address(0), 0);
+        doCorporateAction(CorporateActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
+    }
+
+    function reverseSplit(address currency, uint256 amount, uint256 reverseSplitToOne) external override {
+        require(shareInfo.getLockedUpAmount(address(this), address(this)) == 0); //do not start a reverse split if some exchanges may still be selling shares, cancel these orders first
+        //we are not verifying here that company has enough funds to distribute the currency to each possible outstanding share (possible worst case if everyone owns 1 share)
+        //instead the execution of the reverse split will revert if not enough funds are available, in which case the owner can still withdraw the reverse split
+        doCorporateAction(CorporateActionType.REVERSE_SPLIT, 0, address(0), currency, amount, address(0), reverseSplitToOne);
     }
 
     function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external override {
@@ -228,7 +235,7 @@ contract Share is ERC20, IShare {
 
     function withdrawFunds(address destination, address currency, uint256 amount) external override {
         require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
-        doCorporateAction(CorporateActionType.WITHDRAW_FUNDS, shareInfo.getMaxOutstandingShareCount(address(this)), destination, currency, amount, address(0), 0);
+        doCorporateAction(CorporateActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
     }
 
     function doCorporateAction(CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
@@ -244,6 +251,10 @@ contract Share is ERC20, IShare {
     }
 
     function doRequestCorporateAction(uint256 id, CorporateActionType decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
+        if (numberOfShares == 0) {
+            numberOfShares = shareInfo.getMaxOutstandingShareCount(address(this));
+        }
+
         CorporateActionData storage corporateAction = corporateActionsData[id];
         corporateAction.decisionType = decisionType;
         corporateAction.numberOfShares = numberOfShares;
@@ -287,7 +298,7 @@ contract Share is ERC20, IShare {
                 pendingCorporateActionId = 0;
 
                 if ((optionalCurrency != address(0)) && isApproved(voteResult)) { //(optionalCurrency != address(0)) implies that (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND)
-                    doCorporateAction(CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, shareInfo.getMaxOutstandingShareCount(address(this)), address(0), currency, amount, optionalCurrency, optionalAmount);
+                    doCorporateAction(CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
                 }
             }
         }
@@ -297,10 +308,11 @@ contract Share is ERC20, IShare {
         if (isApproved(voteResult)) {
             if (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND) { //should be the most common action
                 if (optionalCurrency == address(0)) {
+                    IERC20 erc20 = IERC20(currency);
                     address[] memory shareholders = shareInfo.getShareholders();
                     for (uint256 i = 0; i < shareholders.length; i++) {
                         address shareholder = shareholders[i];
-                        IERC20(currency).safeTransfer(shareholder, balanceOf(shareholder)*amount);
+                        erc20.safeTransfer(shareholder, balanceOf(shareholder)*amount);
                     }
                 } //else a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action will be triggered in the resolveCorporateAction() method
             } else if (decisionType == CorporateActionType.ISSUE_SHARES) {
@@ -320,13 +332,33 @@ contract Share is ERC20, IShare {
             } else if (decisionType == CorporateActionType.CANCEL_ORDER) {
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.cancel(amount);
+            } else if (decisionType == CorporateActionType.REVERSE_SPLIT) {
+                doReverseSplit(address(this), optionalAmount);
+
+                uint256 availableAmount = shareInfo.getAvailableAmount(address(this), currency); //do not execute the getAvailableAmount() method every time again in the loop!
+                IERC20 erc20 = IERC20(currency);
+                address[] memory shareholders = shareInfo.getShareholders();
+                for (uint256 i = 0; i < shareholders.length; i++) {
+                    address shareholder = shareholders[i];
+
+                    //pay out fractional shares
+                    uint256 payOut = (balanceOf(shareholder)%optionalAmount)*amount;
+                    if (availableAmount >= payOut) { //availableAmount may be < erc20.balanceOf(address(this)), because we may still have a pending allowance at an exchange!
+                        erc20.safeTransfer(shareholder, payOut);
+                        availableAmount -= payOut;
+                    } else {
+                        revert(); //run out of funds
+                    }
+
+                    //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
+                    doReverseSplit(shareholder, optionalAmount);
+                }
             } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
                 IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
             } else { //decisionType == CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, should be a safe default action
-                address[] memory shareholders = shareInfo.getShareholders();
-                Vote[] memory votes = scrutineer.getVotes(pendingNewOwnerId);
                 //work around there being no memory mapping in Solidity
                 IERC20 optionalERC20 = IERC20(optionalCurrency);
+                Vote[] memory votes = scrutineer.getVotes(pendingNewOwnerId);
                 for (uint256 i = 0; i < votes.length; i++) {
                     Vote memory v = votes[i];
                     if (v.choice == VoteChoice.IN_FAVOR) {
@@ -334,6 +366,9 @@ contract Share is ERC20, IShare {
                         optionalERC20.safeIncreaseAllowance(shareholder, balanceOf(shareholder)*optionalAmount);
                     }
                 }
+
+                IERC20 erc20 = IERC20(currency);
+                address[] memory shareholders = shareInfo.getShareholders();
                 for (uint256 i = 0; i < shareholders.length; i++) {
                     address shareholder = shareholders[i];
                     uint256 optionalAllowance = optionalERC20.allowance(address(this), shareholder);
@@ -341,7 +376,7 @@ contract Share is ERC20, IShare {
                         optionalERC20.safeDecreaseAllowance(shareholder, optionalAllowance);
                         optionalERC20.safeTransfer(shareholder, optionalAllowance);
                     } else {
-                        IERC20(currency).safeTransfer(shareholder, balanceOf(shareholder)*amount);
+                        erc20.safeTransfer(shareholder, balanceOf(shareholder)*amount);
                     }
                 }
             }
@@ -352,5 +387,11 @@ contract Share is ERC20, IShare {
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
         return ((voteResult == VoteResult.APPROVED) || (voteResult == VoteResult.NO_OUTSTANDING_SHARES));
+    }
+
+    function doReverseSplit(address account, uint256 reverseSplitRatio) internal {
+        uint256 stake = balanceOf(account);
+        //reduce the treasury shares from stake -> stake/reverseSplitRatio == stake - (stake - stake/reverseSplitRatio)
+        _burn(account, stake - (stake/reverseSplitRatio));
     }
 }
