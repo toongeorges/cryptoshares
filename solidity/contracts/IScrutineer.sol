@@ -10,6 +10,11 @@ enum VoteResult {
     NON_EXISTENT, PENDING, APPROVED, REJECTED, EXPIRED, WITHDRAWN, NO_OUTSTANDING_SHARES
 }
 
+struct Vote {
+    address voter;
+    VoteChoice choice;
+}
+
 struct DecisionParameters {
     uint64 decisionTime; //How much time in seconds shareholders have to approve a request
     uint64 executionTime; //How much time in seconds the owner has to execute an approved request after the decisionTime has ended
@@ -36,6 +41,7 @@ interface IScrutineer {
     function getDecisionTimes(address owner, uint256 id) external view returns (uint64, uint64, uint64);
     function getDetailedVoteResult(address owner, uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
     function getVoteResult(address owner, uint256 id) external view returns (VoteResult);
+    function getVotes(uint256 id) external view returns (Vote[] memory);
 
     function propose(address decisionToken) external returns (uint256, bool);
     function propose(address decisionToken, uint256 voteType) external returns (uint256, bool);

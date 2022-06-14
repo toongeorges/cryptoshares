@@ -10,34 +10,18 @@ import 'contracts/IScrutineer.sol';
 import 'contracts/IShareInfo.sol';
 import 'contracts/IExchange.sol';
 
-enum CorporateActionType {
-    ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, WITHDRAW_FUNDS, DISTRIBUTE_DIVIDEND, CANCEL_ORDER
-}
-
-struct CorporateActionData {
+struct CorporateActionData { //see the RequestCorporateAction and CorporateAction event in the IShare interface for the meaning of these fields
     CorporateActionType decisionType;
-    address exchange; //only relevant for RAISE_FUNDS, BUY_BACK and WITHDRAW_FUNDS, pack together with decisionType
-    uint256 numberOfShares; //the number of shares created or destroyed for ISSUE_SHARES or DESTROY_SHARES, the number of shares to sell or buy back for RAISE_FUNDS and BUY_BACK and the (max) outstanding number of shares for WITHDRAW_FUNDS and DISTRIBUTE_DIVIDEND
-    address currency; //ERC20 token
-    uint256 amount; //empty for ISSUE_SHARES and DESTROY_SHARES, the ask or bid price for a single share for RAISE_FUNDS and BUY_BACK, the amount to withdraw for WITHDRAW_FUNDS or to distribute per share for DISTRIBUTE_DIVIDEND
-    address optionalCurrency; //ERC20 token
-    uint256 optionalAmount; //only relevant in the case of an optional dividend for DISTRIBUTE_DIVIDEND, shareholders can opt for the optional dividend instead of the default dividend
+    address exchange;
+    uint256 numberOfShares;
+    address currency;
+    uint256 amount;
+    address optionalCurrency;
+    uint256 optionalAmount;
 }
 
 contract Share is ERC20, IShare {
     using SafeERC20 for IERC20;
-
-    //who manages the smart contract
-    event RequestNewOwner(uint256 indexed id, address indexed newOwner);
-    event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
-
-    //actions changing how decisions are made
-    event RequestDecisionParametersChange(uint256 indexed id, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event DecisionParametersChange(uint256 indexed id, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-
-    //corporate actions
-    event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
-    event CorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, VoteResult indexed voteResult, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
 
     address public owner;
     IScrutineer public scrutineer;
@@ -78,7 +62,7 @@ contract Share is ERC20, IShare {
 
 
 
-    function registerShareholder(address shareholder) external returns (uint256) {
+    function registerShareholder(address shareholder) external override returns (uint256) {
         return shareInfo.registerShareholder(shareholder);
     }
 
@@ -92,23 +76,23 @@ contract Share is ERC20, IShare {
 
 
 
-    function getProposedOwner(uint256 id) external view returns (address) {
+    function getProposedOwner(uint256 id) external view override returns (address) {
         return newOwners[id];
     }
 
-    function getProposedDecisionParameters(uint256 id) external view returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getProposedDecisionParameters(uint256 id) external view override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
         DecisionParameters storage dP = decisionParametersData[id];
         return (dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
-    function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256) {
+    function getProposedCorporateAction(uint256 id) external view override returns (CorporateActionType, uint256, address, address, uint256, address, uint256) {
         CorporateActionData storage cA = corporateActionsData[id];
         return (cA.decisionType, cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
     }
 
 
 
-    function changeOwner(address newOwner) external isOwner {
+    function changeOwner(address newOwner) external override isOwner {
         if (pendingNewOwnerId == 0) {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -128,7 +112,7 @@ contract Share is ERC20, IShare {
         resolveNewOwner(false);
     }
 
-    function withdrawChangeOwnerRequest() external isOwner {
+    function withdrawChangeOwnerRequest() external override isOwner {
         resolveNewOwner(true);
     }
 
@@ -155,7 +139,7 @@ contract Share is ERC20, IShare {
         emit NewOwner(id, newOwner, voteResult);
     }
 
-    function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external isOwner {
+    function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override isOwner {
         if (pendingDecisionParametersId == 0) {
             (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
 
@@ -181,7 +165,7 @@ contract Share is ERC20, IShare {
         resolveDecisionParametersChange(false);
     }
 
-    function withdrawChangeDecisionParametersRequest() external isOwner {
+    function withdrawChangeDecisionParametersRequest() external override isOwner {
         resolveDecisionParametersChange(true);
     }
 
@@ -209,43 +193,42 @@ contract Share is ERC20, IShare {
         emit DecisionParametersChange(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
     }
 
-    function issueShares(uint256 numberOfShares) external {
+    function issueShares(uint256 numberOfShares) external override {
         doCorporateAction(CorporateActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
-    function destroyShares(uint256 numberOfShares) external {
+    function destroyShares(uint256 numberOfShares) external override {
         doCorporateAction(CorporateActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
-    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external {
+    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external override {
         require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
         doCorporateAction(CorporateActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), 0);
     }
 
-    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external {
-        uint256 totalPrice = numberOfShares*price;
-        require(shareInfo.getAvailableAmount(address(this), currency) >= totalPrice);
+    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external override {
+        require(shareInfo.getAvailableAmount(address(this), currency) >= numberOfShares*price);
         doCorporateAction(CorporateActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), 0);
     }
 
-    function withdrawFunds(address destination, address currency, uint256 amount) external {
-        require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
-        doCorporateAction(CorporateActionType.WITHDRAW_FUNDS, shareInfo.getMaxOutstandingShareCount(address(this)), destination, currency, amount, address(0), 0);
+    function cancelOrder(address exchangeAddress, uint256 orderId) external override {
+        doCorporateAction(CorporateActionType.CANCEL_ORDER, shareInfo.getMaxOutstandingShareCount(address(this)), exchangeAddress, address(0), orderId, address(0), 0);
     }
 
-    function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external {
+    function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external override {
         uint256 maxOutstandingShareCount = shareInfo.getMaxOutstandingShareCount(address(this));
-        uint256 totalDistribution = maxOutstandingShareCount*amount;
-        require(shareInfo.getAvailableAmount(address(this), currency) >= totalDistribution);
+        require(shareInfo.getAvailableAmount(address(this), currency) >= maxOutstandingShareCount*amount);
 
-        bool isOptional = (optionalCurrency != address(0));
-        uint256 totalOptionalDistribution = 0;
-        if (isOptional) {
-            totalOptionalDistribution = maxOutstandingShareCount*optionalAmount;
-            require(shareInfo.getAvailableAmount(address(this), optionalCurrency) >= totalOptionalDistribution);
+        if (optionalCurrency != address(0)) {
+            require(shareInfo.getAvailableAmount(address(this), optionalCurrency) >= maxOutstandingShareCount*optionalAmount);
         }
 
         doCorporateAction(CorporateActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
+    }
+
+    function withdrawFunds(address destination, address currency, uint256 amount) external override {
+        require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
+        doCorporateAction(CorporateActionType.WITHDRAW_FUNDS, shareInfo.getMaxOutstandingShareCount(address(this)), destination, currency, amount, address(0), 0);
     }
 
     function doCorporateAction(CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
@@ -280,12 +263,12 @@ contract Share is ERC20, IShare {
         resolveCorporateAction(false);
     }
 
-    function withdrawCorporateActionRequest() external isOwner {
+    function withdrawCorporateActionRequest() external override isOwner {
         resolveCorporateAction(true);
     }
 
     function resolveCorporateAction(bool withdraw) internal {
-        uint256 id = pendingNewOwnerId;
+        uint256 id = pendingCorporateActionId;
         if (id != 0) {
            bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
 
@@ -293,17 +276,34 @@ contract Share is ERC20, IShare {
                 VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
                 CorporateActionData storage cA = corporateActionsData[id];
+                CorporateActionType decisionType = cA.decisionType;
+                address currency = cA.currency;
+                uint256 amount = cA.amount;
+                address optionalCurrency = cA.optionalCurrency;
+                uint256 optionalAmount = cA.optionalAmount;
 
-                executeCorporateAction(id, voteResult, cA.decisionType, cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
+                executeCorporateAction(id, voteResult, decisionType, cA.numberOfShares, cA.exchange, currency, amount, optionalCurrency, optionalAmount);
 
-                pendingNewOwnerId = 0;
+                pendingCorporateActionId = 0;
+
+                if ((optionalCurrency != address(0)) && isApproved(voteResult)) { //(optionalCurrency != address(0)) implies that (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND)
+                    doCorporateAction(CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, shareInfo.getMaxOutstandingShareCount(address(this)), address(0), currency, amount, optionalCurrency, optionalAmount);
+                }
             }
         }
     }
 
     function executeCorporateAction(uint256 id, VoteResult voteResult, CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
         if (isApproved(voteResult)) {
-            if (decisionType == CorporateActionType.ISSUE_SHARES) {
+            if (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND) { //should be the most common action
+                if (optionalCurrency == address(0)) {
+                    address[] memory shareholders = shareInfo.getShareholders();
+                    for (uint256 i = 0; i < shareholders.length; i++) {
+                        address shareholder = shareholders[i];
+                        IERC20(currency).safeTransfer(shareholder, balanceOf(shareholder)*amount);
+                    }
+                } //else a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action will be triggered in the resolveCorporateAction() method
+            } else if (decisionType == CorporateActionType.ISSUE_SHARES) {
                 _mint(address(this), numberOfShares);
             } else if (decisionType == CorporateActionType.DESTROY_SHARES) {
                 _burn(address(this), numberOfShares);
@@ -317,16 +317,33 @@ contract Share is ERC20, IShare {
                 IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.bid(address(this), numberOfShares, currency, amount);
+            } else if (decisionType == CorporateActionType.CANCEL_ORDER) {
+                IExchange exchange = IExchange(exchangeAddress);
+                exchange.cancel(amount);
             } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
                 IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
-            } else if (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND) {
+            } else { //decisionType == CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, should be a safe default action
                 address[] memory shareholders = shareInfo.getShareholders();
+                Vote[] memory votes = scrutineer.getVotes(pendingNewOwnerId);
+                //work around there being no memory mapping in Solidity
+                IERC20 optionalERC20 = IERC20(optionalCurrency);
+                for (uint256 i = 0; i < votes.length; i++) {
+                    Vote memory v = votes[i];
+                    if (v.choice == VoteChoice.IN_FAVOR) {
+                        address shareholder = v.voter;
+                        optionalERC20.safeIncreaseAllowance(shareholder, balanceOf(shareholder)*optionalAmount);
+                    }
+                }
                 for (uint256 i = 0; i < shareholders.length; i++) {
                     address shareholder = shareholders[i];
-                    uint256 shareholderStake = balanceOf(shareholder);
-                    IERC20(currency).safeTransfer(shareholder, shareholderStake*amount);
+                    uint256 optionalAllowance = optionalERC20.allowance(address(this), shareholder);
+                    if (optionalAllowance > 0) {
+                        optionalERC20.safeDecreaseAllowance(shareholder, optionalAllowance);
+                        optionalERC20.safeTransfer(shareholder, optionalAllowance);
+                    } else {
+                        IERC20(currency).safeTransfer(shareholder, balanceOf(shareholder)*amount);
+                    }
                 }
-                //TODO how to deal with optional dividend, how do we know the vote?  //TODO also handle the case of VoteResult.NO_OUTSTANDING_SHARES
             }
         }
 
@@ -336,20 +353,4 @@ contract Share is ERC20, IShare {
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
         return ((voteResult == VoteResult.APPROVED) || (voteResult == VoteResult.NO_OUTSTANDING_SHARES));
     }
-
-/*
-    function distributeDividend(uint256 numberOfShares, address currency, uint256 amount) external isOwner {
-
-    }
-
-    function distributeOptionalDividend(uint256 numberOfShares, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external isOwner {
-
-    }
-*/
-    //TODO initiate corporate actions
-    //TODO approve corporate actions
-    //TODO withdraw corporate actions
-
-    //TODO figure out how to implement the optional dividend (voters have to choose an option) --> through a second vote with scrutineer, the share smart contract must be able to get the voters?
-    //TODO allow cancelling order on an exchange!
 }

@@ -9,11 +9,6 @@ enum VotingStage {
     VOTING_IN_PROGRESS, VOTING_HAS_ENDED, EXECUTION_HAS_ENDED
 }
 
-struct Vote {
-    address voter;
-    VoteChoice choice;
-}
-
 struct VoteParameters {
     //pack these 3 variables together
     uint64 startTime;
@@ -22,7 +17,7 @@ struct VoteParameters {
 
     DecisionParameters decisionParameters; //store this on creation, so it cannot be changed afterwards
 
-    mapping(address => uint256) lastVote; //shareHolders can vote as much as they want, but only their last vote counts (if they still hold shares at the moment the votes are counted).
+    mapping(address => uint256) voteIndex;
     Vote[] votes;
 
     uint256 inFavor;
@@ -119,6 +114,10 @@ contract Scrutineer is IScrutineer {
         }
     }
 
+    function getVotes(uint256 id) external view override returns (Vote[] memory) {
+        return proposals[msg.sender][id].votes;
+    }
+
 
 
     function propose(address decisionToken) external override returns (uint256, bool) {
@@ -155,9 +154,16 @@ contract Scrutineer is IScrutineer {
         if ((vP.result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.VOTING_IN_PROGRESS)) { //vP.result could be e.g. WITHDRAWN while the voting stage is still in progress
             address voter = msg.sender;
             if (IERC20(vP.decisionToken).balanceOf(voter) > 0) { //The amount of shares of the voter is checked later, so it does not matter if the voter still sells all his shares before the vote resolution.  This check just prevents people with no shares from increasing the votes array.
+                mapping(address => uint256) storage voteIndex = vP.voteIndex;
+                Vote[] storage votes = vP.votes;
+                uint256 index = voteIndex[voter];
                 uint256 numberOfVotes = vP.votes.length;
-                vP.lastVote[voter] = numberOfVotes;
-                vP.votes.push(Vote(voter, decision));
+                if ((index == 0) && ((votes.length == 0) || (votes[0].voter != voter))) { //if the voter has not voted before
+                    voteIndex[voter] = numberOfVotes;
+                    votes.push(Vote(voter, decision));
+                } else { //shareHolders can vote as much as they want, but only their last vote counts (if they still hold shares at the moment the votes are counted).
+                    votes[index] = Vote(voter, decision);
+                }
             }
         } else {
             revert("Cannot vote anymore");
@@ -305,23 +311,20 @@ contract Scrutineer is IScrutineer {
         uint256 abstain = 0;
         uint256 noVote = 0;
 
-        mapping(address => uint256) storage lastVote = voteParameters.lastVote;
         Vote[] storage votes = voteParameters.votes;
         for (uint256 i = 0; i < votes.length; i++) {
             Vote storage v = votes[i];
-            if (lastVote[v.voter] == i) { //a shareholder may vote as many times as he wants, but only consider his last vote
-                uint256 votingPower = token.balanceOf(v.voter);
-                if (votingPower > 0) { //do not consider votes of shareholders who sold their shares
-                    VoteChoice choice = v.choice;
-                    if (choice == VoteChoice.IN_FAVOR) {
-                        inFavor += votingPower;
-                    } else if (choice == VoteChoice.AGAINST) {
-                        against += votingPower;
-                    } else if (choice == VoteChoice.ABSTAIN) {
-                        abstain += votingPower;
-                    } else { //no votes do not count towards the quorum
-                        noVote += votingPower;
-                    }
+            uint256 votingPower = token.balanceOf(v.voter);
+            if (votingPower > 0) { //do not consider votes of shareholders who sold their shares
+                VoteChoice choice = v.choice;
+                if (choice == VoteChoice.IN_FAVOR) {
+                    inFavor += votingPower;
+                } else if (choice == VoteChoice.AGAINST) {
+                    against += votingPower;
+                } else if (choice == VoteChoice.ABSTAIN) {
+                    abstain += votingPower;
+                } else { //no votes do not count towards the quorum
+                    noVote += votingPower;
                 }
             }
         }
