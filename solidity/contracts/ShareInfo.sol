@@ -50,6 +50,12 @@ contract ShareInfo is IShareInfo {
         return share.totalSupply() - share.balanceOf(shareAddress);
     }
 
+    //getMaxOutstandingShareCount() >= getOutstandingShareCount(), we are also counting the shares that have been locked up in exchanges and may be sold
+    function getMaxOutstandingShareCount(address shareAddress) external view override returns (uint256) {
+        IERC20 share = IERC20(shareAddress);
+        return share.totalSupply() - getTreasuryShareCount(shareAddress);
+    }
+
     function getShareholderCount(address shareAddress) external view override returns (uint256) {
         return shareholders[shareAddress].length;
     }

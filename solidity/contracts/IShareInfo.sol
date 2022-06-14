@@ -8,6 +8,7 @@ interface IShareInfo {
     function getAvailableAmount(address shareAddress, address tokenAddress) external view returns (uint256);
     function getTreasuryShareCount(address shareAddress) external view returns (uint256);
     function getOutstandingShareCount(address shareAddress) external view returns (uint256);
+    function getMaxOutstandingShareCount(address shareAddress) external view returns (uint256);
     function getShareholderCount(address shareAddress) external view returns (uint256);
 
     //these methods implicitly assume that the shareAddress == msg.sender, so they can only (meaningfully) be executed by a share smart contract

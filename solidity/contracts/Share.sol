@@ -300,9 +300,43 @@ contract Share is ERC20, IShare {
                 IERC20(currency).safeTransfer(destination, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
 
                 emit CorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, VoteResult.NO_OUTSTANDING_SHARES, 0, destination, currency, amount, address(0), 0);
-            } else { //the number of shares >= getOutstandingShareCount() == share.totalSupply() - share.balanceOf(shareAddress), we are also counting the shares that have been locked up in exchanges and may be sold
-                doRequestCorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, totalSupply() - shareInfo.getTreasuryShareCount(address(this)), destination, currency, amount, address(0), 0);
+            } else {
+                doRequestCorporateAction(id, CorporateActionType.WITHDRAW_FUNDS, shareInfo.getMaxOutstandingShareCount(address(this)), destination, currency, amount, address(0), 0);
             }
+        }
+    }
+
+    function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external isOwner {
+        if (pendingCorporateActionId == 0) {
+            uint256 maxOutstandingShareCount = shareInfo.getMaxOutstandingShareCount(address(this));
+            uint256 totalDistribution = maxOutstandingShareCount*amount;
+            require(shareInfo.getAvailableAmount(address(this), currency) >= totalDistribution);
+
+            bool isOptional = (optionalCurrency != address(0));
+            uint256 totalOptionalDistribution = 0;
+            if (isOptional) {
+                totalOptionalDistribution = maxOutstandingShareCount*optionalAmount;
+                require(shareInfo.getAvailableAmount(address(this), optionalCurrency) >= totalOptionalDistribution);
+            }
+
+            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
+
+            if (noSharesOutstanding) { //we choose for the default dividend
+                doDistributeDividend(currency, amount);
+
+                emit CorporateAction(id, CorporateActionType.DISTRIBUTE_DIVIDEND, VoteResult.NO_OUTSTANDING_SHARES, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
+            } else {
+                doRequestCorporateAction(id, CorporateActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
+            }
+        }
+    }
+
+    function doDistributeDividend(address currency, uint256 amount) internal { //executing the code inline is not possible because of "Stack too deep, try removing local variables."
+        address[] memory shareholders = shareInfo.getShareholders();
+        for (uint256 i = 0; i < shareholders.length; i++) {
+            address shareholder = shareholders[i];
+            uint256 numberOfShares = balanceOf(shareholder);
+            IERC20(currency).safeTransfer(shareholder, numberOfShares*amount);
         }
     }
 
@@ -370,6 +404,8 @@ contract Share is ERC20, IShare {
                         exchange.bid(address(this), numberOfShares, currency, amount);
                     } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
                         IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+                    } else if (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND) {
+                        //TODO how to deal with optional dividend, how do we know the vote?
                     }
                 }
 
@@ -379,7 +415,6 @@ contract Share is ERC20, IShare {
             }
         }
     }
-
 
 /*
     function distributeDividend(uint256 numberOfShares, address currency, uint256 amount) external isOwner {
@@ -398,5 +433,6 @@ contract Share is ERC20, IShare {
     //TODO approve external proposals
     //TODO withdraw external proposals
 
+    //TODO figure out how to implement the optional dividend (voters have to choose an option) --> through a second vote with scrutineer, the share smart contract must be able to get the voters?
     //TODO allow cancelling order on an exchange!
 }
