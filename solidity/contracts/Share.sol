@@ -39,10 +39,6 @@ contract Share is ERC20, IShare {
     event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
     event CorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, VoteResult indexed voteResult, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
 
-    //external proposals, context needs to be provided
-    event RequestExternalProposal(uint256 indexed id);
-    event ExternalProposal(uint256 indexed id, VoteResult indexed voteResult);
-
     address public owner;
     IScrutineer public scrutineer;
     IShareInfo public shareInfo;
@@ -54,7 +50,6 @@ contract Share is ERC20, IShare {
     uint256 public pendingNewOwnerId;
     uint256 public pendingDecisionParametersId;
     uint256 public pendingCorporateActionId;
-    uint256 public pendingExternalProposalCount; //TODO
 
     modifier isOwner() {
         require(msg.sender == owner);
@@ -354,10 +349,6 @@ contract Share is ERC20, IShare {
     //TODO initiate corporate actions
     //TODO approve corporate actions
     //TODO withdraw corporate actions
-
-    //TODO initiate external proposals (in parallel)
-    //TODO approve external proposals
-    //TODO withdraw external proposals
 
     //TODO figure out how to implement the optional dividend (voters have to choose an option) --> through a second vote with scrutineer, the share smart contract must be able to get the voters?
     //TODO allow cancelling order on an exchange!

@@ -107,8 +107,6 @@ contract ShareInfo is IShareInfo {
             share.changeOwnerOnApproval();
             share.changeDecisionParametersOnApproval();
             share.corporateActionOnApproval();
-
-            //TODO resolve multiple! external proposal votes
         }
     }
 
