@@ -36,7 +36,7 @@ contract Share is ERC20, IShare {
     uint256 public pendingCorporateActionId;
 
     modifier isOwner() {
-        _isOwner();
+        _isOwner(); //putting the code in a fuction reduces the size of the compiled smart contract!
         _;
     }
 
@@ -122,16 +122,12 @@ contract Share is ERC20, IShare {
 
     function resolveNewOwner(bool withdraw) internal {
         uint256 id = pendingNewOwnerId;
-        if (id != 0) {
-           bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
+        if (resultHasBeenUpdated(id, withdraw)) {
+            VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
-            if (resultHasBeenUpdated) {
-                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+            doChangeOwner(id, voteResult, newOwners[id]);
 
-                doChangeOwner(id, voteResult, newOwners[id]);
-
-                pendingNewOwnerId = 0;
-            }
+            pendingNewOwnerId = 0;
         }
     }
 
@@ -175,17 +171,13 @@ contract Share is ERC20, IShare {
 
     function resolveDecisionParametersChange(bool withdraw) internal {
         uint256 id = pendingDecisionParametersId;
-        if (id != 0) {
-            bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
+        if (resultHasBeenUpdated(id, withdraw)) {
+            VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
-            if (resultHasBeenUpdated) {
-                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+            DecisionParameters storage dP = decisionParametersData[id];
+            doSetDecisionParameters(id, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
 
-                DecisionParameters storage dP = decisionParametersData[id];
-                doSetDecisionParameters(id, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
-
-                pendingDecisionParametersId = 0;
-            }
+            pendingDecisionParametersId = 0;
         }
     }
 
@@ -284,26 +276,22 @@ contract Share is ERC20, IShare {
 
     function resolveCorporateAction(bool withdraw) internal {
         uint256 id = pendingCorporateActionId;
-        if (id != 0) {
-           bool resultHasBeenUpdated = withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id);
+        if (resultHasBeenUpdated(id, withdraw)) {
+            VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
-            if (resultHasBeenUpdated) {
-                VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+            CorporateActionData storage cA = corporateActionsData[id];
+            CorporateActionType decisionType = cA.decisionType;
+            address currency = cA.currency;
+            uint256 amount = cA.amount;
+            address optionalCurrency = cA.optionalCurrency;
+            uint256 optionalAmount = cA.optionalAmount;
 
-                CorporateActionData storage cA = corporateActionsData[id];
-                CorporateActionType decisionType = cA.decisionType;
-                address currency = cA.currency;
-                uint256 amount = cA.amount;
-                address optionalCurrency = cA.optionalCurrency;
-                uint256 optionalAmount = cA.optionalAmount;
+            executeCorporateAction(id, voteResult, decisionType, cA.numberOfShares, cA.exchange, currency, amount, optionalCurrency, optionalAmount);
 
-                executeCorporateAction(id, voteResult, decisionType, cA.numberOfShares, cA.exchange, currency, amount, optionalCurrency, optionalAmount);
+            pendingCorporateActionId = 0;
 
-                pendingCorporateActionId = 0;
-
-                if ((optionalCurrency != address(0)) && isApproved(voteResult)) { //(optionalCurrency != address(0)) implies that (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND)
-                    doCorporateAction(CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
-                }
+            if ((optionalCurrency != address(0)) && isApproved(voteResult)) { //(optionalCurrency != address(0)) implies that (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND)
+                doCorporateAction(CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
             }
         }
     }
@@ -387,6 +375,10 @@ contract Share is ERC20, IShare {
         }
 
         emit CorporateAction(id, decisionType, voteResult, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+    }
+
+    function resultHasBeenUpdated(uint256 id, bool withdraw) internal returns (bool) {
+        return (id != 0) && (withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id)); //return true if a result is pending (id != 0) and if the vote has been withdrawn or resolved
     }
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
