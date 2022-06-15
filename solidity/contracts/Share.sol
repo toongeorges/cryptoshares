@@ -98,7 +98,7 @@ contract Share is ERC20, IShare {
 
     function changeOwner(address newOwner) external override isOwner {
         if (pendingNewOwnerId == 0) {
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
+            (uint256 id, bool noSharesOutstanding) = doPropose();
 
             if (noSharesOutstanding) {
                 doChangeOwner(id, VoteResult.NO_OUTSTANDING_SHARES, newOwner);
@@ -122,7 +122,7 @@ contract Share is ERC20, IShare {
 
     function resolveNewOwner(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
-            VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+            VoteResult voteResult = doGetVoteResults(id);
 
             doChangeOwner(id, voteResult, newOwners[id]);
 
@@ -140,7 +140,7 @@ contract Share is ERC20, IShare {
 
     function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override isOwner {
         if (pendingDecisionParametersId == 0) {
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
+            (uint256 id, bool noSharesOutstanding) = doPropose();
 
             if (noSharesOutstanding) {
                 doSetDecisionParameters(id, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
@@ -170,7 +170,7 @@ contract Share is ERC20, IShare {
 
     function resolveDecisionParametersChange(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
-            VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+            VoteResult voteResult = doGetVoteResults(id);
 
             DecisionParameters storage dP = decisionParametersData[id];
             doSetDecisionParameters(id, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
@@ -234,7 +234,7 @@ contract Share is ERC20, IShare {
 
     function doCorporateAction(CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
         if (pendingCorporateActionId == 0) {
-            (uint256 id, bool noSharesOutstanding) = scrutineer.propose(address(this));
+            (uint256 id, bool noSharesOutstanding) = doPropose();
 
             if (noSharesOutstanding) {
                 executeCorporateAction(id, VoteResult.NO_OUTSTANDING_SHARES, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
@@ -274,7 +274,7 @@ contract Share is ERC20, IShare {
 
     function resolveCorporateAction(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
-            VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
+            VoteResult voteResult = doGetVoteResults(id);
 
             CorporateActionData storage cA = corporateActionsData[id];
             CorporateActionType decisionType = cA.decisionType;
@@ -374,8 +374,16 @@ contract Share is ERC20, IShare {
         emit CorporateAction(id, decisionType, voteResult, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
     }
 
+    function doPropose() internal returns (uint256, bool) {
+        return scrutineer.propose(address(this));
+    }
+
     function resultHasBeenUpdated(uint256 id, bool withdraw) internal returns (bool) {
         return (id != 0) && (withdraw ? scrutineer.withdrawVote(id) : scrutineer.resolveVote(id)); //return true if a result is pending (id != 0) and if the vote has been withdrawn or resolved
+    }
+
+    function doGetVoteResults(uint256 id) internal view returns (VoteResult) {
+        return scrutineer.getVoteResult(address(this), id);
     }
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
