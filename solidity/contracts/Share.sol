@@ -36,8 +36,12 @@ contract Share is ERC20, IShare {
     uint256 public pendingCorporateActionId;
 
     modifier isOwner() {
-        require(msg.sender == owner);
+        _isOwner();
         _;
+    }
+
+    function _isOwner() internal view {
+        require(msg.sender == owner);
     }
 
     constructor(string memory name, string memory symbol, address scrutineerAddress, address shareInfoAddress) ERC20(name, symbol) {
