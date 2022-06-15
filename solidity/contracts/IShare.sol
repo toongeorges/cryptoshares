@@ -73,7 +73,15 @@ interface IShare {
     event RequestCorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
     event CorporateAction(uint256 indexed id, CorporateActionType indexed decisionType, VoteResult indexed voteResult, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
 
+    function getLockedUpAmount(address tokenAddress) external view returns (uint256);
+    function getAvailableAmount(address tokenAddress) external view returns (uint256);
+    function getTreasuryShareCount() external view returns (uint256);
+    function getOutstandingShareCount() external view returns (uint256);
+    function getMaxOutstandingShareCount() external view returns (uint256);
+    function getShareholderCount() external view returns (uint256);
+
     function registerShareholder(address shareholder) external returns (uint256);
+
     function getProposedOwner(uint256 id) external view returns (address);
     function getProposedDecisionParameters(uint256 id) external view returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256);

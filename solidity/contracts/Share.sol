@@ -70,7 +70,7 @@ contract Share is ERC20, IShare {
 
 
 
-    function getLockedUpAmount(address tokenAddress) public view returns (uint256) {
+    function getLockedUpAmount(address tokenAddress) public view override returns (uint256) {
         address[] storage exchanges = exchangesByToken[tokenAddress];
         IERC20 token = IERC20(tokenAddress);
 
@@ -81,7 +81,7 @@ contract Share is ERC20, IShare {
         return lockedUpAmount;
     }
 
-    function getAvailableAmount(address tokenAddress) public view returns (uint256) {
+    function getAvailableAmount(address tokenAddress) public view override returns (uint256) {
         return IERC20(tokenAddress).balanceOf(address(this)) - getLockedUpAmount(tokenAddress);
     }
 
@@ -89,24 +89,24 @@ contract Share is ERC20, IShare {
         require(getAvailableAmount(currency) >= amount);
     }
 
-    function getTreasuryShareCount() public view returns (uint256) { //return the number of shares held by the company
+    function getTreasuryShareCount() public view override returns (uint256) { //return the number of shares held by the company
         return balanceOf(address(this)) - getLockedUpAmount(address(this));
     }
 
-    function getOutstandingShareCount() public view returns (uint256) { //return the number of shares not held by the company
+    function getOutstandingShareCount() public view override returns (uint256) { //return the number of shares not held by the company
         return totalSupply() - balanceOf(address(this));
     }
 
     //getMaxOutstandingShareCount() >= getOutstandingShareCount(), we are also counting the shares that have been locked up in exchanges and may be sold
-    function getMaxOutstandingShareCount() public view returns (uint256) {
+    function getMaxOutstandingShareCount() public view override returns (uint256) {
         return totalSupply() - getTreasuryShareCount();
     }
 
-    function getShareholderCount() external view returns (uint256) {
+    function getShareholderCount() external view override returns (uint256) {
         return shareholders.length;
     }
 
-    function registerShareholder(address shareholder) external returns (uint256) {
+    function registerShareholder(address shareholder) external override returns (uint256) {
         if (shareholderIndex[shareholder] == 0) { //the shareholder has not been registered yet OR the shareholder was the first shareholder
             if ((shareholders.length == 0) || (shareholders[0] != shareholder)) { //the shareholder has not been registered yet
                 return doRegisterShareHolder(shareholder);
