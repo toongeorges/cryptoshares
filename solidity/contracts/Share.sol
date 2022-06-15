@@ -25,7 +25,6 @@ contract Share is ERC20, IShare {
 
     address public owner;
     IScrutineer public scrutineer;
-    IShareInfo public shareInfo;
 
     mapping(uint256 => address) private newOwners;
     mapping(uint256 => DecisionParameters) private decisionParametersData;
@@ -38,6 +37,9 @@ contract Share is ERC20, IShare {
     mapping(address => uint256) private shareholderIndex;
     address[] private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
 
+    mapping(address => mapping(address => uint256)) private approvedExchangeIndexByToken;
+    mapping(address => address[]) private approvedExchangesByToken;
+
     modifier isOwner() {
         _isOwner(); //putting the code in a fuction reduces the size of the compiled smart contract!
         _;
@@ -47,9 +49,8 @@ contract Share is ERC20, IShare {
         require(msg.sender == owner);
     }
 
-    constructor(string memory name, string memory symbol, address scrutineerAddress, address shareInfoAddress) ERC20(name, symbol) {
+    constructor(string memory name, string memory symbol, address scrutineerAddress) ERC20(name, symbol) {
         scrutineer = IScrutineer(scrutineerAddress);
-        shareInfo = IShareInfo(shareInfoAddress);
         owner = msg.sender;
     }
 
@@ -68,6 +69,38 @@ contract Share is ERC20, IShare {
     }
 
 
+
+    function getLockedUpAmount(address tokenAddress) public view returns (uint256) {
+        address[] storage exchanges = approvedExchangesByToken[tokenAddress];
+        IERC20 token = IERC20(tokenAddress);
+
+        uint256 lockedUpAmount = 0;
+        for (uint256 i = 0; i < exchanges.length; i++) {
+            lockedUpAmount += token.allowance(address(this), exchanges[i]);
+        }
+        return lockedUpAmount;
+    }
+
+    function getAvailableAmount(address tokenAddress) public view returns (uint256) {
+        return IERC20(tokenAddress).balanceOf(address(this)) - getLockedUpAmount(tokenAddress);
+    }
+
+    function verifyAvailable(address currency, uint256 amount) internal view {
+        require(getAvailableAmount(currency) >= amount);
+    }
+
+    function getTreasuryShareCount() public view returns (uint256) { //return the number of shares held by the company
+        return balanceOf(address(this)) - getLockedUpAmount(address(this));
+    }
+
+    function getOutstandingShareCount() public view returns (uint256) { //return the number of shares not held by the company
+        return totalSupply() - balanceOf(address(this));
+    }
+
+    //getMaxOutstandingShareCount() >= getOutstandingShareCount(), we are also counting the shares that have been locked up in exchanges and may be sold
+    function getMaxOutstandingShareCount() public view returns (uint256) {
+        return totalSupply() - getTreasuryShareCount();
+    }
 
     function getShareholderCount() external view returns (uint256) {
         return shareholders.length;
@@ -90,7 +123,7 @@ contract Share is ERC20, IShare {
             doRegisterShareHolder(old[i]);
         }
 
-        if (shareInfo.getOutstandingShareCount(address(this)) == 0) { //changes do not require approval anymore, resolve all pending votes
+        if (getOutstandingShareCount() == 0) { //changes do not require approval anymore, resolve all pending votes
             changeOwnerOnApproval();
             changeDecisionParametersOnApproval();
             corporateActionOnApproval();
@@ -109,8 +142,37 @@ contract Share is ERC20, IShare {
         }
     }
 
-    function packApprovedExchanges(address tokenAddress) external {
-        shareInfo.packApprovedExchanges(tokenAddress);
+    function registerExchange(address exchange, address tokenAddress) internal returns (uint256) {
+        mapping(address => uint256) storage approvedExchangeIndex = approvedExchangeIndexByToken[tokenAddress];
+        uint256 index = approvedExchangeIndex[exchange];
+        if (index == 0) { //the exchange has not been registered yet OR was the first registered exchange
+            address[] storage approvedExchanges = approvedExchangesByToken[tokenAddress];
+            if ((approvedExchanges.length == 0) || (approvedExchanges[0] != exchange)) { //the exchange has not been registered yet
+                return doRegisterExchange(exchange, tokenAddress, approvedExchangeIndex, approvedExchanges);
+            }
+        }
+        return index;
+    }
+
+    function packExchanges(address tokenAddress) external {
+        address[] memory old = approvedExchangesByToken[tokenAddress]; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
+        approvedExchangesByToken[tokenAddress] = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
+
+        for (uint256 i = 0; i < old.length; i++) {
+            doRegisterExchange(old[i], tokenAddress, approvedExchangeIndexByToken[tokenAddress], approvedExchangesByToken[tokenAddress]);
+        }
+    }
+
+    function doRegisterExchange(address exchange, address tokenAddress, mapping(address => uint256) storage approvedExchangeIndex, address[] storage approvedExchanges) internal returns (uint256) {
+        if (IERC20(tokenAddress).allowance(address(this), exchange) > 0) {
+            uint256 index = approvedExchanges.length;
+            approvedExchangeIndex[exchange] = index;
+            approvedExchanges.push(exchange);
+            return index;
+        } else {
+            approvedExchangeIndex[exchange] = 0;
+            return 0;
+        }
     }
 
 
@@ -231,12 +293,12 @@ contract Share is ERC20, IShare {
     }
 
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external override {
-        require(shareInfo.getTreasuryShareCount(address(this)) >= numberOfShares);
+        require(getTreasuryShareCount() >= numberOfShares);
         doCorporateAction(CorporateActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), 0);
     }
 
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price) external override {
-        require(shareInfo.getAvailableAmount(address(this), currency) >= numberOfShares*price);
+        verifyAvailable(currency, numberOfShares*price);
         doCorporateAction(CorporateActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), 0);
     }
 
@@ -245,25 +307,25 @@ contract Share is ERC20, IShare {
     }
 
     function reverseSplit(address currency, uint256 amount, uint256 reverseSplitToOne) external override {
-        require(shareInfo.getLockedUpAmount(address(this), address(this)) == 0); //do not start a reverse split if some exchanges may still be selling shares, cancel these orders first
+        require(getLockedUpAmount(address(this)) == 0); //do not start a reverse split if some exchanges may still be selling shares, cancel these orders first
         //we are not verifying here that company has enough funds to distribute the currency to each possible outstanding share (possible worst case if everyone owns 1 share)
         //instead the execution of the reverse split will revert if not enough funds are available, in which case the owner can still withdraw the reverse split
         doCorporateAction(CorporateActionType.REVERSE_SPLIT, 0, address(0), currency, amount, address(0), reverseSplitToOne);
     }
 
     function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external override {
-        uint256 maxOutstandingShareCount = shareInfo.getMaxOutstandingShareCount(address(this));
-        require(shareInfo.getAvailableAmount(address(this), currency) >= maxOutstandingShareCount*amount);
+        uint256 maxOutstandingShareCount = getMaxOutstandingShareCount();
+        verifyAvailable(currency, maxOutstandingShareCount*amount);
 
         if (optionalCurrency != address(0)) {
-            require(shareInfo.getAvailableAmount(address(this), optionalCurrency) >= maxOutstandingShareCount*optionalAmount);
+            verifyAvailable(optionalCurrency, maxOutstandingShareCount*optionalAmount);
         }
 
         doCorporateAction(CorporateActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
     }
 
     function withdrawFunds(address destination, address currency, uint256 amount) external override {
-        require(shareInfo.getAvailableAmount(address(this), currency) >= amount);
+        verifyAvailable(currency, amount);
         doCorporateAction(CorporateActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
     }
 
@@ -281,7 +343,7 @@ contract Share is ERC20, IShare {
 
     function doRequestCorporateAction(uint256 id, CorporateActionType decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
         if (numberOfShares == 0) {
-            numberOfShares = shareInfo.getMaxOutstandingShareCount(address(this));
+            numberOfShares = getMaxOutstandingShareCount();
         }
 
         CorporateActionData storage corporateAction = corporateActionsData[id];
@@ -343,13 +405,13 @@ contract Share is ERC20, IShare {
             } else if (decisionType == CorporateActionType.DESTROY_SHARES) {
                 _burn(address(this), numberOfShares);
             } else if (decisionType == CorporateActionType.RAISE_FUNDS) {
-                doRegisterExchange(address(this), exchangeAddress);
                 increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
+                registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.ask(address(this), numberOfShares, currency, amount);
             } else if (decisionType == CorporateActionType.BUY_BACK) {
-                doRegisterExchange(currency, exchangeAddress);
                 IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.bid(address(this), numberOfShares, currency, amount);
             } else if (decisionType == CorporateActionType.CANCEL_ORDER) {
@@ -358,7 +420,7 @@ contract Share is ERC20, IShare {
             } else if (decisionType == CorporateActionType.REVERSE_SPLIT) {
                 doReverseSplit(address(this), optionalAmount);
 
-                uint256 availableAmount = shareInfo.getAvailableAmount(address(this), currency); //do not execute the getAvailableAmount() method every time again in the loop!
+                uint256 availableAmount = getAvailableAmount(currency); //do not execute the getAvailableAmount() method every time again in the loop!
                 IERC20 erc20 = IERC20(currency);
                 for (uint256 i = 0; i < shareholders.length; i++) {
                     address shareholder = shareholders[i];
@@ -424,10 +486,6 @@ contract Share is ERC20, IShare {
 
     function safeTransfer(IERC20 token, address destination, uint256 amount) internal {
         token.safeTransfer(destination, amount);
-    }
-
-    function doRegisterExchange(address currency, address exchangeAddress) internal {
-        shareInfo.registerApprovedExchange(currency, exchangeAddress);
     }
 
     function doReverseSplit(address account, uint256 reverseSplitRatio) internal {
