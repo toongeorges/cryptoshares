@@ -10,12 +10,12 @@ enum CorporateActionType {
 
 interface IShare {
     //who manages the smart contract
-    event RequestNewOwner(uint256 indexed id, address indexed newOwner);
-    event NewOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
+    event RequestChangeOwner(uint256 indexed id, address indexed newOwner);
+    event ChangeOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
 
     //actions changing how decisions are made
-    event RequestDecisionParametersChange(uint256 indexed id, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event DecisionParametersChange(uint256 indexed id, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event RequestChangeDecisionParameters(uint256 indexed id, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event ChangeDecisionParameters(uint256 indexed id, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
     /*corporate actions
       the meaning of the event parameters depend on the decisionType and are as follows:
@@ -87,12 +87,12 @@ interface IShare {
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256);
 
     function changeOwner(address newOwner) external;
-    function changeOwnerOnApproval() external;
-    function withdrawChangeOwnerRequest() external;
+    function resolveChangeOwnerVote() external;
+    function withdrawChangeOwnerVote() external;
 
     function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
-    function changeDecisionParametersOnApproval() external;
-    function withdrawChangeDecisionParametersRequest() external;
+    function resolveChangeDecisionParametersVote() external;
+    function withdrawChangeDecisionParametersVote() external;
 
     function issueShares(uint256 numberOfShares) external;
     function destroyShares(uint256 numberOfShares) external;
@@ -102,6 +102,6 @@ interface IShare {
     function reverseSplit(address currency, uint256 amount, uint256 reverseSplitToOne) external;
     function distributeDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external;
     function withdrawFunds(address destination, address currency, uint256 amount) external;
-    function corporateActionOnApproval() external;
-    function withdrawCorporateActionRequest() external;
+    function resolveCorporateActionVote() external;
+    function withdrawCorporateActionVote() external;
 }

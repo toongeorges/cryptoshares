@@ -135,9 +135,9 @@ contract Share is ERC20, IShare {
         }
 
         if (getOutstandingShareCount() == 0) { //changes do not require approval anymore, resolve all pending votes
-            changeOwnerOnApproval();
-            changeDecisionParametersOnApproval();
-            corporateActionOnApproval();
+            resolveChangeOwnerVote();
+            resolveChangeDecisionParametersVote();
+            resolveCorporateActionVote();
         }
     }
 
@@ -228,20 +228,20 @@ contract Share is ERC20, IShare {
 
                 pendingNewOwnerId = id;
 
-                emit RequestNewOwner(id, newOwner);
+                emit RequestChangeOwner(id, newOwner);
             }
         }
     }
 
-    function changeOwnerOnApproval() public override {
-        resolveNewOwner(false, pendingNewOwnerId);
+    function resolveChangeOwnerVote() public override {
+        resolveChangeOwner(false, pendingNewOwnerId);
     }
 
-    function withdrawChangeOwnerRequest() external override isOwner {
-        resolveNewOwner(true, pendingNewOwnerId);
+    function withdrawChangeOwnerVote() external override isOwner {
+        resolveChangeOwner(true, pendingNewOwnerId);
     }
 
-    function resolveNewOwner(bool withdraw, uint256 id) internal {
+    function resolveChangeOwner(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
             VoteResult voteResult = doGetVoteResults(id);
 
@@ -256,7 +256,7 @@ contract Share is ERC20, IShare {
             owner = newOwner;
         }
 
-        emit NewOwner(id, newOwner, voteResult);
+        emit ChangeOwner(id, newOwner, voteResult);
     }
 
     function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override isOwner {
@@ -276,20 +276,20 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = id;
 
-                emit RequestDecisionParametersChange(id, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit RequestChangeDecisionParameters(id, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
 
-    function changeDecisionParametersOnApproval() public override {
-        resolveDecisionParametersChange(false, pendingDecisionParametersId);
+    function resolveChangeDecisionParametersVote() public override {
+        resolveChangeDecisionParameters(false, pendingDecisionParametersId);
     }
 
-    function withdrawChangeDecisionParametersRequest() external override isOwner {
-        resolveDecisionParametersChange(true, pendingDecisionParametersId);
+    function withdrawChangeDecisionParametersVote() external override isOwner {
+        resolveChangeDecisionParameters(true, pendingDecisionParametersId);
     }
 
-    function resolveDecisionParametersChange(bool withdraw, uint256 id) internal {
+    function resolveChangeDecisionParameters(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
             VoteResult voteResult = doGetVoteResults(id);
 
@@ -305,7 +305,7 @@ contract Share is ERC20, IShare {
             scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
         }
 
-        emit DecisionParametersChange(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+        emit ChangeDecisionParameters(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
     }
 
     function issueShares(uint256 numberOfShares) external override {
@@ -385,11 +385,11 @@ contract Share is ERC20, IShare {
     }
 
 
-    function corporateActionOnApproval() public override {
+    function resolveCorporateActionVote() public override {
         resolveCorporateAction(false, pendingCorporateActionId);
     }
 
-    function withdrawCorporateActionRequest() external override isOwner {
+    function withdrawCorporateActionVote() external override isOwner {
         resolveCorporateAction(true, pendingCorporateActionId);
     }
 
