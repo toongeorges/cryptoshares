@@ -113,15 +113,14 @@ contract Share is ERC20, IShare {
     }
 
     function changeOwnerOnApproval() external override {
-        resolveNewOwner(false);
+        resolveNewOwner(false, pendingNewOwnerId);
     }
 
     function withdrawChangeOwnerRequest() external override isOwner {
-        resolveNewOwner(true);
+        resolveNewOwner(true, pendingNewOwnerId);
     }
 
-    function resolveNewOwner(bool withdraw) internal {
-        uint256 id = pendingNewOwnerId;
+    function resolveNewOwner(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
             VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
@@ -162,15 +161,14 @@ contract Share is ERC20, IShare {
     }
 
     function changeDecisionParametersOnApproval() external override {
-        resolveDecisionParametersChange(false);
+        resolveDecisionParametersChange(false, pendingDecisionParametersId);
     }
 
     function withdrawChangeDecisionParametersRequest() external override isOwner {
-        resolveDecisionParametersChange(true);
+        resolveDecisionParametersChange(true, pendingDecisionParametersId);
     }
 
-    function resolveDecisionParametersChange(bool withdraw) internal {
-        uint256 id = pendingDecisionParametersId;
+    function resolveDecisionParametersChange(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
             VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
@@ -267,15 +265,14 @@ contract Share is ERC20, IShare {
 
 
     function corporateActionOnApproval() external override {
-        resolveCorporateAction(false);
+        resolveCorporateAction(false, pendingCorporateActionId);
     }
 
     function withdrawCorporateActionRequest() external override isOwner {
-        resolveCorporateAction(true);
+        resolveCorporateAction(true, pendingCorporateActionId);
     }
 
-    function resolveCorporateAction(bool withdraw) internal {
-        uint256 id = pendingCorporateActionId;
+    function resolveCorporateAction(bool withdraw, uint256 id) internal {
         if (resultHasBeenUpdated(id, withdraw)) {
             VoteResult voteResult = scrutineer.getVoteResult(address(this), id);
 
