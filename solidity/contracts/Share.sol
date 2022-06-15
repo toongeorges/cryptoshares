@@ -37,8 +37,8 @@ contract Share is ERC20, IShare {
     mapping(address => uint256) private shareholderIndex;
     address[] private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
 
-    mapping(address => mapping(address => uint256)) private approvedExchangeIndexByToken;
-    mapping(address => address[]) private approvedExchangesByToken;
+    mapping(address => mapping(address => uint256)) private exchangeIndexByToken;
+    mapping(address => address[]) private exchangesByToken;
 
     modifier isOwner() {
         _isOwner(); //putting the code in a fuction reduces the size of the compiled smart contract!
@@ -71,7 +71,7 @@ contract Share is ERC20, IShare {
 
 
     function getLockedUpAmount(address tokenAddress) public view returns (uint256) {
-        address[] storage exchanges = approvedExchangesByToken[tokenAddress];
+        address[] storage exchanges = exchangesByToken[tokenAddress];
         IERC20 token = IERC20(tokenAddress);
 
         uint256 lockedUpAmount = 0;
@@ -115,6 +115,17 @@ contract Share is ERC20, IShare {
         return 0;
     }
 
+    function getShareholderPackInfo() external view returns (uint256, uint256) {
+        uint256 shareholderCount = shareholders.length;
+        uint256 optimizationCount = 0;
+        for (uint256 i = 0; i < shareholderCount; i++) {
+            if (balanceOf(shareholders[i]) == 0) {
+                optimizationCount++;
+            }
+        }
+        return (optimizationCount, shareholderCount);
+    }
+
     function packShareholders() external { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
         address[] memory old = shareholders; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
         shareholders = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
@@ -143,34 +154,47 @@ contract Share is ERC20, IShare {
     }
 
     function registerExchange(address exchange, address tokenAddress) internal returns (uint256) {
-        mapping(address => uint256) storage approvedExchangeIndex = approvedExchangeIndexByToken[tokenAddress];
-        uint256 index = approvedExchangeIndex[exchange];
+        mapping(address => uint256) storage exchangeIndex = exchangeIndexByToken[tokenAddress];
+        uint256 index = exchangeIndex[exchange];
         if (index == 0) { //the exchange has not been registered yet OR was the first registered exchange
-            address[] storage approvedExchanges = approvedExchangesByToken[tokenAddress];
-            if ((approvedExchanges.length == 0) || (approvedExchanges[0] != exchange)) { //the exchange has not been registered yet
-                return doRegisterExchange(exchange, tokenAddress, approvedExchangeIndex, approvedExchanges);
+            address[] storage exchanges = exchangesByToken[tokenAddress];
+            if ((exchanges.length == 0) || (exchanges[0] != exchange)) { //the exchange has not been registered yet
+                return doRegisterExchange(exchange, IERC20(tokenAddress), exchangeIndex, exchanges);
             }
         }
         return index;
     }
 
+    function getExchangePackInfo(address tokenAddress) external view returns (uint256, uint256) {
+        IERC20 token = IERC20(tokenAddress);
+        address[] storage exchanges = exchangesByToken[tokenAddress];
+        uint256 exchangeCount = exchanges.length;
+        uint256 optimizationCount = 0;
+        for (uint256 i = 0; i < exchangeCount; i++) {
+            if (token.allowance(address(this), exchanges[i]) == 0) {
+                optimizationCount++;
+            }
+        }
+        return (optimizationCount, exchangeCount);
+    }
+
     function packExchanges(address tokenAddress) external {
-        address[] memory old = approvedExchangesByToken[tokenAddress]; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
-        approvedExchangesByToken[tokenAddress] = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
+        address[] memory old = exchangesByToken[tokenAddress]; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
+        exchangesByToken[tokenAddress] = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
 
         for (uint256 i = 0; i < old.length; i++) {
-            doRegisterExchange(old[i], tokenAddress, approvedExchangeIndexByToken[tokenAddress], approvedExchangesByToken[tokenAddress]);
+            doRegisterExchange(old[i], IERC20(tokenAddress), exchangeIndexByToken[tokenAddress], exchangesByToken[tokenAddress]);
         }
     }
 
-    function doRegisterExchange(address exchange, address tokenAddress, mapping(address => uint256) storage approvedExchangeIndex, address[] storage approvedExchanges) internal returns (uint256) {
-        if (IERC20(tokenAddress).allowance(address(this), exchange) > 0) {
-            uint256 index = approvedExchanges.length;
-            approvedExchangeIndex[exchange] = index;
-            approvedExchanges.push(exchange);
+    function doRegisterExchange(address exchange, IERC20 token, mapping(address => uint256) storage exchangeIndex, address[] storage exchanges) internal returns (uint256) {
+        if (token.allowance(address(this), exchange) > 0) {
+            uint256 index = exchanges.length;
+            exchangeIndex[exchange] = index;
+            exchanges.push(exchange);
             return index;
         } else {
-            approvedExchangeIndex[exchange] = 0;
+            exchangeIndex[exchange] = 0;
             return 0;
         }
     }
