@@ -301,7 +301,7 @@ contract Share is ERC20, IShare {
                     address[] memory shareholders = shareInfo.getShareholders();
                     for (uint256 i = 0; i < shareholders.length; i++) {
                         address shareholder = shareholders[i];
-                        erc20.safeTransfer(shareholder, balanceOf(shareholder)*amount);
+                        safeTransfer(erc20, shareholder, balanceOf(shareholder)*amount);
                     }
                 } //else a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action will be triggered in the resolveCorporateAction() method
             } else if (decisionType == CorporateActionType.ISSUE_SHARES) {
@@ -333,7 +333,7 @@ contract Share is ERC20, IShare {
                     //pay out fractional shares
                     uint256 payOut = (balanceOf(shareholder)%optionalAmount)*amount;
                     if (availableAmount >= payOut) { //availableAmount may be < erc20.balanceOf(address(this)), because we may still have a pending allowance at an exchange!
-                        erc20.safeTransfer(shareholder, payOut);
+                        safeTransfer(erc20, shareholder, payOut);
                         availableAmount -= payOut;
                     } else {
                         revert(); //run out of funds
@@ -343,7 +343,7 @@ contract Share is ERC20, IShare {
                     doReverseSplit(shareholder, optionalAmount);
                 }
             } else if (decisionType == CorporateActionType.WITHDRAW_FUNDS) {
-                IERC20(currency).safeTransfer(exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+                safeTransfer(IERC20(currency), exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
             } else { //decisionType == CorporateActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, should be a safe default action
                 //work around there being no memory mapping in Solidity
                 IERC20 optionalERC20 = IERC20(optionalCurrency);
@@ -363,9 +363,9 @@ contract Share is ERC20, IShare {
                     uint256 optionalAllowance = optionalERC20.allowance(address(this), shareholder);
                     if (optionalAllowance > 0) {
                         optionalERC20.safeDecreaseAllowance(shareholder, optionalAllowance);
-                        optionalERC20.safeTransfer(shareholder, optionalAllowance);
+                        safeTransfer(optionalERC20, shareholder, optionalAllowance);
                     } else {
-                        erc20.safeTransfer(shareholder, balanceOf(shareholder)*amount);
+                        safeTransfer(erc20, shareholder, balanceOf(shareholder)*amount);
                     }
                 }
             }
@@ -388,6 +388,10 @@ contract Share is ERC20, IShare {
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
         return ((voteResult == VoteResult.APPROVED) || (voteResult == VoteResult.NO_OUTSTANDING_SHARES));
+    }
+
+    function safeTransfer(IERC20 token, address destination, uint256 amount) internal {
+        token.safeTransfer(destination, amount);
     }
 
     function doReverseSplit(address account, uint256 reverseSplitRatio) internal {
