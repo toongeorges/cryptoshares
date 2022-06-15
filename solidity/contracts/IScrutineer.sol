@@ -28,7 +28,7 @@ struct DecisionParameters {
 
 interface IScrutineer {
     event ChangeDecisionParameters(address indexed owner, uint256 indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event VoteOpened(address indexed owner, uint256 indexed id, address indexed decisionToken, uint256 lastVoteDate);
+    event VoteOpened(address indexed owner, uint256 indexed id, address indexed decisionToken, uint256 voteType, uint256 lastVoteDate, uint256 lastResolutionDate);
     event VoteResolved(address indexed owner, uint256 indexed id, VoteResult indexed result);
 
     function getDecisionParameters() external returns (uint64, uint64, uint32, uint32, uint32, uint32);

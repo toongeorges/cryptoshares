@@ -134,7 +134,8 @@ contract Scrutineer is IScrutineer {
         vP.decisionToken = decisionToken;
         vP.decisionParameters = dP; //copy by value
 
-        emit VoteOpened(msg.sender, index, decisionToken, block.timestamp + dP.decisionTime);
+        uint256 lastVoteTime = block.timestamp + dP.decisionTime;
+        emit VoteOpened(msg.sender, index, decisionToken, voteType, lastVoteTime, lastVoteTime + dP.executionTime);
 
         if (getOutstandingShareCount(decisionToken) == 0) { //auto approve if there are no shares outstanding
             vP.result = VoteResult.NO_OUTSTANDING_SHARES; 
