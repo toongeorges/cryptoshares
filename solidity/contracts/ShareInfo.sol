@@ -7,9 +7,6 @@ import 'contracts/IShareInfo.sol';
 import 'contracts/IShare.sol';
 
 contract ShareInfo is IShareInfo {
-    mapping(address => mapping(address => uint256)) private shareholderIndex;
-    mapping(address => address[]) private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
-
     mapping(address => mapping(address => mapping(address => uint256))) private approvedExchangeIndexByToken;
     mapping(address => mapping(address => address[])) private approvedExchangesByToken;
 
@@ -56,59 +53,7 @@ contract ShareInfo is IShareInfo {
         return share.totalSupply() - getTreasuryShareCount(shareAddress);
     }
 
-    function getShareholderCount(address shareAddress) external view override returns (uint256) {
-        return shareholders[shareAddress].length;
-    }
 
-    function getShareholders() external view returns (address[] memory) {
-        return shareholders[msg.sender];
-    }
-
-
-
-    function registerShareholder(address shareholder) external override returns (uint256) {
-        mapping(address => uint256) storage shIndex = shareholderIndex[msg.sender];
-        uint256 index = shIndex[shareholder];
-        if (index == 0) { //the shareholder has not been registered yet OR the shareholder was the first shareholder
-            if (IERC20(msg.sender).balanceOf(shareholder) > 0) { //only register if the address is an actual shareholder
-                address[] storage sh = shareholders[msg.sender];
-                if ((sh.length == 0) || (sh[0] != shareholder)) { //the shareholder has not been registered yet
-                    index = sh.length;
-                    shIndex[shareholder] = index;
-                    sh.push(shareholder);
-                }
-            }
-        }
-        return index;
-    }
-
-    function packShareholders() external override { //if a lot of active shareholders change, one may not want to iterate over non existing shareholders anymore when distributing a dividend
-        mapping(address => uint256) storage shIndex = shareholderIndex[msg.sender];
-        address[] memory old = shareholders[msg.sender]; //dynamic memory arrays do not exist, only dynamic storage arrays, so copy the original values to memory and then modify storage
-        shareholders[msg.sender] = new address[](0); //empty the new storage again, do not use the delete keyword, because this has an unbounded gas cost
-        address[] storage sh = shareholders[msg.sender];
-        uint256 packedIndex = 0;
-        IERC20 shareAsERC20 = IERC20(msg.sender);        
-
-        for (uint256 i = 0; i < old.length; i++) {
-            address shareholder = old[i];
-            if (shareAsERC20.balanceOf(shareholder) > 0) {
-                shIndex[shareholder] = packedIndex;
-                sh.push(shareholder);
-                packedIndex++;
-            } else {
-                shIndex[shareholder] = 0;
-            }
-        }
-
-        if (getOutstandingShareCount(msg.sender) == 0) { //changes do not require approval anymore, resolve all pending votes
-            IShare share = IShare(msg.sender);
-
-            share.changeOwnerOnApproval();
-            share.changeDecisionParametersOnApproval();
-            share.corporateActionOnApproval();
-        }
-    }
 
     function registerApprovedExchange(address tokenAddress, address exchange) external override returns (uint256) {
         mapping(address => uint256) storage approvedExchangeIndex = approvedExchangeIndexByToken[msg.sender][tokenAddress];
