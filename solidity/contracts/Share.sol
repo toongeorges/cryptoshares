@@ -309,12 +309,12 @@ contract Share is ERC20, IShare {
             } else if (decisionType == CorporateActionType.DESTROY_SHARES) {
                 _burn(address(this), numberOfShares);
             } else if (decisionType == CorporateActionType.RAISE_FUNDS) {
-                shareInfo.registerApprovedExchange(address(this), exchangeAddress);
+                doRegisterExchange(address(this), exchangeAddress);
                 increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.ask(address(this), numberOfShares, currency, amount);
             } else if (decisionType == CorporateActionType.BUY_BACK) {
-                shareInfo.registerApprovedExchange(currency, exchangeAddress);
+                doRegisterExchange(currency, exchangeAddress);
                 IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.bid(address(this), numberOfShares, currency, amount);
@@ -392,6 +392,10 @@ contract Share is ERC20, IShare {
 
     function safeTransfer(IERC20 token, address destination, uint256 amount) internal {
         token.safeTransfer(destination, amount);
+    }
+
+    function doRegisterExchange(address currency, address exchangeAddress) internal {
+        shareInfo.registerApprovedExchange(currency, exchangeAddress);
     }
 
     function doReverseSplit(address account, uint256 reverseSplitRatio) internal {
