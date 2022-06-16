@@ -7,7 +7,6 @@ import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import 'contracts/IShare.sol';
 import 'contracts/IScrutineer.sol';
-import 'contracts/IShareInfo.sol';
 import 'contracts/IExchange.sol';
 
 struct CorporateActionData { //see the RequestCorporateAction and CorporateAction event in the IShare interface for the meaning of these fields
@@ -27,6 +26,7 @@ contract Share is ERC20, IShare {
     IScrutineer public scrutineer;
 
     mapping(uint256 => address) private newOwners;
+    mapping(uint256 => uint256) private decisionParametersVoteType;
     mapping(uint256 => DecisionParameters) private decisionParametersData;
     mapping(uint256 => CorporateActionData) private corporateActionsData;
 
@@ -205,9 +205,9 @@ contract Share is ERC20, IShare {
         return newOwners[id];
     }
 
-    function getProposedDecisionParameters(uint256 id) external view override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getProposedDecisionParameters(uint256 id) external view override returns (uint256, uint64, uint64, uint32, uint32, uint32, uint32) {
         DecisionParameters storage dP = decisionParametersData[id];
-        return (dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+        return (decisionParametersVoteType[id], dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
     function getProposedCorporateAction(uint256 id) external view override returns (CorporateActionType, uint256, address, address, uint256, address, uint256) {
@@ -219,7 +219,7 @@ contract Share is ERC20, IShare {
 
     function changeOwner(address newOwner) external override isOwner {
         if (pendingNewOwnerId == 0) {
-            (uint256 id, bool noSharesOutstanding) = doPropose();
+            (uint256 id, bool noSharesOutstanding) = doPropose(1);
 
             if (noSharesOutstanding) {
                 doChangeOwner(id, VoteResult.NO_OUTSTANDING_SHARES, newOwner);
@@ -259,13 +259,15 @@ contract Share is ERC20, IShare {
         emit ChangeOwner(id, newOwner, voteResult);
     }
 
-    function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override isOwner {
+    function changeDecisionParameters(uint256 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override isOwner {
         if (pendingDecisionParametersId == 0) {
-            (uint256 id, bool noSharesOutstanding) = doPropose();
+            (uint256 id, bool noSharesOutstanding) = doPropose(2);
 
             if (noSharesOutstanding) {
-                doSetDecisionParameters(id, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                doSetDecisionParameters(id, voteType, VoteResult.NO_OUTSTANDING_SHARES, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             } else {
+                decisionParametersVoteType[id] = voteType;
+
                 DecisionParameters storage dP = decisionParametersData[id];
                 dP.decisionTime = decisionTime;
                 dP.executionTime = executionTime;
@@ -276,7 +278,7 @@ contract Share is ERC20, IShare {
 
                 pendingDecisionParametersId = id;
 
-                emit RequestChangeDecisionParameters(id, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+                emit RequestChangeDecisionParameters(id, voteType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
             }
         }
     }
@@ -294,18 +296,18 @@ contract Share is ERC20, IShare {
             VoteResult voteResult = doGetVoteResults(id);
 
             DecisionParameters storage dP = decisionParametersData[id];
-            doSetDecisionParameters(id, voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+            doSetDecisionParameters(id, decisionParametersVoteType[id], voteResult, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
 
             pendingDecisionParametersId = 0;
         }
     }
 
-    function doSetDecisionParameters(uint256 id, VoteResult voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
+    function doSetDecisionParameters(uint256 id, uint256 voteType, VoteResult voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
         if (isApproved(voteResult)) {
-            scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+            scrutineer.setDecisionParameters(decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator, voteType);
         }
 
-        emit ChangeDecisionParameters(id, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+        emit ChangeDecisionParameters(id, voteType, voteResult, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
     }
 
     function issueShares(uint256 numberOfShares) external override {
@@ -355,7 +357,7 @@ contract Share is ERC20, IShare {
 
     function doCorporateAction(CorporateActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
         if (pendingCorporateActionId == 0) {
-            (uint256 id, bool noSharesOutstanding) = doPropose();
+            (uint256 id, bool noSharesOutstanding) = doPropose(3 + uint256(decisionType));
 
             if (noSharesOutstanding) {
                 executeCorporateAction(id, VoteResult.NO_OUTSTANDING_SHARES, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
@@ -492,8 +494,8 @@ contract Share is ERC20, IShare {
         emit CorporateAction(id, decisionType, voteResult, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
     }
 
-    function doPropose() internal returns (uint256, bool) {
-        return scrutineer.propose(address(this));
+    function doPropose(uint256 voteType) internal returns (uint256, bool) {
+        return scrutineer.propose(address(this), voteType);
     }
 
     function resultHasBeenUpdated(uint256 id, bool withdraw) internal returns (bool) {

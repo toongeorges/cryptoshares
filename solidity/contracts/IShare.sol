@@ -14,8 +14,8 @@ interface IShare {
     event ChangeOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);
 
     //actions changing how decisions are made
-    event RequestChangeDecisionParameters(uint256 indexed id, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event ChangeDecisionParameters(uint256 indexed id, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event RequestChangeDecisionParameters(uint256 indexed id, uint256 indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event ChangeDecisionParameters(uint256 indexed id, uint256 indexed voteType, VoteResult indexed voteResult, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
     /*corporate actions
       the meaning of the event parameters depend on the decisionType and are as follows:
@@ -83,14 +83,14 @@ interface IShare {
     function registerShareholder(address shareholder) external returns (uint256);
 
     function getProposedOwner(uint256 id) external view returns (address);
-    function getProposedDecisionParameters(uint256 id) external view returns (uint64, uint64, uint32, uint32, uint32, uint32);
+    function getProposedDecisionParameters(uint256 id) external view returns (uint256, uint64, uint64, uint32, uint32, uint32, uint32);
     function getProposedCorporateAction(uint256 id) external view returns (CorporateActionType, uint256, address, address, uint256, address, uint256);
 
     function changeOwner(address newOwner) external;
     function resolveChangeOwnerVote() external;
     function withdrawChangeOwnerVote() external;
 
-    function changeDecisionParameters(uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
+    function changeDecisionParameters(uint256 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
     function resolveChangeDecisionParametersVote() external;
     function withdrawChangeDecisionParametersVote() external;
 
