@@ -3,8 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const solc = require('solc');
  
-const testTokenPath = path.resolve(__dirname, 'contracts', 'TestGold.sol');
-const testTokenSource = fs.readFileSync(testTokenPath, 'utf8');
+const seedTokenPath = path.resolve(__dirname, 'contracts', 'SeedToken.sol');
+const seedTokenSource = fs.readFileSync(seedTokenPath, 'utf8');
 const scrutineerPath = path.resolve(__dirname, 'contracts', 'Scrutineer.sol');
 const scrutineerSource = fs.readFileSync(scrutineerPath, 'utf8');
 const sharePath = path.resolve(__dirname, 'contracts', 'Share.sol');
@@ -15,8 +15,8 @@ const exchangeSource = fs.readFileSync(exchangePath, 'utf8');
 const input = { //compiler input description
   language: 'Solidity',
   sources: {
-    'TestGold.sol': {
-      content: testTokenSource,
+    'SeedToken.sol': {
+      content: seedTokenSource,
     },
     'Scrutineer.sol': {
       content: scrutineerSource,
@@ -57,25 +57,25 @@ if (parsed.errors) {
 }
 
 const allContracts = parsed.contracts;
-contracts.TestGold = allContracts['TestGold.sol'].TestGold;
+contracts.SeedToken = allContracts['SeedToken.sol'].SeedToken;
 contracts.Scrutineer = allContracts['Scrutineer.sol'].Scrutineer;
 contracts.Share = allContracts['Share.sol'].Share;
 contracts.Exchange = allContracts['Exchange.sol'].Exchange;
 
 //evm.bytecode.object is in hexadecimal notation, so the length in bytes is half the length of the string 
-const testGoldSize = contracts.TestGold.evm.bytecode.object.length/2;
+const seedTokenSize = contracts.SeedToken.evm.bytecode.object.length/2;
 const scrutineerSize = contracts.Scrutineer.evm.bytecode.object.length/2;
 const shareSize = contracts.Share.evm.bytecode.object.length/2;
 const exchangeSize = contracts.Exchange.evm.bytecode.object.length/2;
 
-console.log('TestGold contract size: ' + testGoldSize + ' bytes');
+console.log('SeedToken contract size: ' + seedTokenSize + ' bytes');
 console.log('Scrutineer contract size: ' + scrutineerSize + ' bytes');
 console.log('Share contract size: ' + shareSize + ' bytes');
 console.log('Exchange contract size: ' + exchangeSize + ' bytes');
 
 const maxContractSize = 24576; //The Ethereum blockchain does not allow contracts with a greater size
 
-assert.ok(testGoldSize <= maxContractSize);
+assert.ok(seedTokenSize <= maxContractSize);
 assert.ok(scrutineerSize <= maxContractSize);
 assert.ok(shareSize <= maxContractSize);
 assert.ok(exchangeSize <= maxContractSize);

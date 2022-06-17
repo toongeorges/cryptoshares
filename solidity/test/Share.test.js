@@ -6,19 +6,18 @@ const web3 = new Web3(ganache.provider());
 const contracts = require('../compile');
  
 let accounts;
-let testGold;
+let seedToken;
 let scrutineer;
-let shareInfo;
 let share;
  
 beforeEach(async () => {
   // Get a list of all accounts
   accounts = await web3.eth.getAccounts();
 
-  testGold = await new web3.eth.Contract(contracts.TestGold.abi)
+  seedToken = await new web3.eth.Contract(contracts.SeedToken.abi)
     .deploy({
-      data: contracts.TestGold.evm.bytecode.object,
-      arguments: [9000],
+      data: contracts.SeedToken.evm.bytecode.object,
+      arguments: [accounts[1]],
     })
     .send({ from: accounts[0], gas: '3000000' });
 
@@ -39,7 +38,7 @@ beforeEach(async () => {
     
 describe('Share creation', () => {
   it('deploys a contract', () => {
-    assert.ok(testGold.options.address);
+    assert.ok(seedToken.options.address);
     assert.ok(scrutineer.options.address);
     assert.ok(share.options.address);
   });
