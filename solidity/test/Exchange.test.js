@@ -16,7 +16,7 @@ beforeEach(async () => {
   seedToken = await new web3.eth.Contract(contracts.SeedToken.abi)
     .deploy({
       data: contracts.SeedToken.evm.bytecode.object,
-      arguments: [accounts[1]],
+      arguments: [],
     })
     .send({ from: accounts[0], gas: '3000000' });
 

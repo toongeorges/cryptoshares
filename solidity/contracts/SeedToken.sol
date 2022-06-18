@@ -13,8 +13,8 @@ contract SeedToken is ERC20 {
         _;
     }
 
-    constructor(address o) ERC20('Seed Token', 'SEED') {
-        owner = o;
+    constructor() ERC20('Seed Token', 'SEED') {
+        owner = msg.sender;
     }
 
     function mint(uint256 amountOfTokens) external isOwner {
