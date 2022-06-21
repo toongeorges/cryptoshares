@@ -434,12 +434,12 @@ contract LegacyShare is ERC20, ILegacyShare {
                 increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
                 registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
                 IExchange exchange = IExchange(exchangeAddress);
-                exchange.ask(address(this), numberOfShares, currency, amount);
+                exchange.ask(address(this), numberOfShares, currency, amount, 0);
             } else if (decisionType == CorporateActionType.BUY_BACK) {
                 IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
                 registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
                 IExchange exchange = IExchange(exchangeAddress);
-                exchange.bid(address(this), numberOfShares, currency, amount);
+                exchange.bid(address(this), numberOfShares, currency, amount, 0);
             } else if (decisionType == CorporateActionType.CANCEL_ORDER) {
                 IExchange exchange = IExchange(exchangeAddress);
                 exchange.cancel(amount);
