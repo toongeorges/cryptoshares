@@ -26,6 +26,8 @@ struct DecisionParameters {
     uint32 majorityDenominator; //the required majority is compared to the number of votes that are in favor divided by the number of votes that are either in favor or against
 }
 
+error CannotVote(); //either voting has ended or the vote does not exist
+
 interface IScrutineer {
     event ChangeDecisionParameters(address indexed owner, uint256 indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
     event VoteOpened(address indexed owner, uint256 indexed id, address indexed decisionToken, uint256 voteType, uint256 lastVoteDate, uint256 lastResolutionDate);
@@ -41,7 +43,10 @@ interface IScrutineer {
     function getDecisionTimes(address owner, uint256 id) external view returns (uint64, uint64, uint64);
     function getDetailedVoteResult(address owner, uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
     function getVoteResult(address owner, uint256 id) external view returns (VoteResult);
+
+    function getNumberOfVotes(uint256 id) external view returns (uint256);
     function getVotes(uint256 id) external view returns (Vote[] memory);
+    function getVotes(uint256 id, uint256 start, uint256 length) external view returns (Vote[] memory);
 
     function propose(address decisionToken) external returns (uint256, bool);
     function propose(address decisionToken, uint256 voteType) external returns (uint256, bool);

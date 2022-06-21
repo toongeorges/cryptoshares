@@ -114,8 +114,24 @@ contract Scrutineer is IScrutineer {
         }
     }
 
+
+
+    function getNumberOfVotes(uint256 id) external view returns (uint256) {
+        return proposals[msg.sender][id].votes.length;
+    }
+
     function getVotes(uint256 id) external view override returns (Vote[] memory) {
         return proposals[msg.sender][id].votes;
+    }
+
+    function getVotes(uint256 id, uint256 start, uint256 length) external view returns (Vote[] memory) {
+        Vote[] storage votes = proposals[msg.sender][id].votes;
+        Vote[] memory slice = new Vote[](length);
+        for (uint256 i = 0; i < length; i++) {
+            slice[i] = votes[start];
+            start++;
+        }
+        return slice;
     }
 
 
@@ -167,7 +183,7 @@ contract Scrutineer is IScrutineer {
                 }
             }
         } else {
-            revert("Cannot vote anymore");
+            revert CannotVote();
         }
     }
 
