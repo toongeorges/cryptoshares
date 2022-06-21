@@ -24,10 +24,10 @@ async function main() {
   await exchange.deployed();
   console.log("Exchange deployed to:", exchange.address);
 
-  const Share = await hre.ethers.getContractFactory("Share");
-  const share = await Share.deploy("Cryptoshare", "CTS", scrutineer.address);
-  await share.deployed();
-  console.log("Share deployed to:", share.address);
+  const LegacyShare = await hre.ethers.getContractFactory("LegacyShare");
+  const legacyShare = await LegacyShare.deploy("Cryptoshare", "CTS", scrutineer.address);
+  await legacyShare.deployed();
+  console.log("LegacyShare deployed to:", legacyShare.address);
 }
 
 // We recommend this pattern to be able to use async/await everywhere

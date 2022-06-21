@@ -5,7 +5,7 @@ pragma solidity ^0.8.9;
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
-import 'contracts/IShare.sol';
+import 'contracts/ILegacyShare.sol';
 import 'contracts/IScrutineer.sol';
 import 'contracts/IExchange.sol';
 
@@ -19,7 +19,7 @@ struct CorporateActionData { //see the RequestCorporateAction and CorporateActio
     uint256 optionalAmount;
 }
 
-contract Share is ERC20, IShare {
+contract LegacyShare is ERC20, ILegacyShare {
     using SafeERC20 for IERC20;
 
     address public owner;

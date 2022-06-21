@@ -8,7 +8,7 @@ enum CorporateActionType {
     ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, CANCEL_ORDER, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, WITHDRAW_FUNDS
 }
 
-interface IShare {
+interface ILegacyShare {
     //who manages the smart contract
     event RequestChangeOwner(uint256 indexed id, address indexed newOwner);
     event ChangeOwner(uint256 indexed id, address indexed newOwner, VoteResult indexed voteResult);

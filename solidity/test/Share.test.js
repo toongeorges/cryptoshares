@@ -8,7 +8,7 @@ hre.web3 = new Web3(hre.network.provider);
 describe("Share test suite", function() {
   let accounts;
   let scrutineer;
-  let share;
+  let legacyShare;
 
   beforeEach(async () => {
     // Get a list of all accounts
@@ -18,17 +18,17 @@ describe("Share test suite", function() {
     scrutineer = await Scrutineer.deploy();
     await scrutineer.deployed();
   
-    const Share = await hre.ethers.getContractFactory("Share");
-    share = await Share.deploy("Cryptoshare", "CTS", scrutineer.address);
-    await share.deployed();
+    const LegacyShare = await hre.ethers.getContractFactory("LegacyShare");
+    legacyShare = await LegacyShare.deploy("Cryptoshare", "CTS", scrutineer.address);
+    await legacyShare.deployed();
   });
 
   describe('Share creation', () => {
     it('can not accept ether payments', async () => {
       await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: scrutineer.address, value: 100 })); //msg.data is empty, test receive()
       await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: scrutineer.address, value: 100, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
-      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: share.address, value: 200 })); //msg.data is empty, test receive()
-      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: share.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
+      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: legacyShare.address, value: 200 })); //msg.data is empty, test receive()
+      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: legacyShare.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
     });
   });
 });
