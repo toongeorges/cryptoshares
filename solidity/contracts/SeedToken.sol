@@ -13,7 +13,7 @@ contract SeedToken is ERC20 {
         _;
     }
 
-    constructor() ERC20('Seed Token', 'SEED') {
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
         owner = msg.sender;
     }
 

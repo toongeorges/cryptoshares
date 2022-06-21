@@ -1,142 +1,34 @@
-const assert = require('assert');
-const ganache = require('ganache-cli');
-const Web3 = require('web3');
-const web3 = new Web3(ganache.provider());
- 
-const contracts = require('../compile');
- 
-let accounts;
-let seedToken;
-let scrutineer;
-let share;
- 
-beforeEach(async () => {
-  // Get a list of all accounts
-  accounts = await web3.eth.getAccounts();
+const assert = require('assert'); //chai does not handle promises in which an error is thrown
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+const Web3 = require("web3");
+hre.Web3 = Web3;
+hre.web3 = new Web3(hre.network.provider);
 
-  seedToken = await new web3.eth.Contract(contracts.SeedToken.abi)
-    .deploy({
-      data: contracts.SeedToken.evm.bytecode.object,
-      arguments: [],
-    })
-    .send({ from: accounts[0], gas: '3000000' });
+describe("Share test suite", function() {
+  let accounts;
+  let scrutineer;
+  let share;
 
-  scrutineer = await new web3.eth.Contract(contracts.Scrutineer.abi)
-  .deploy({
-    data: contracts.Scrutineer.evm.bytecode.object,
-    arguments: [],
-  })
-  .send({ from: accounts[0], gas: '3000000' });
-
-  share = await new web3.eth.Contract(contracts.Share.abi)
-    .deploy({
-      data: contracts.Share.evm.bytecode.object,
-      arguments: ['The Blockchain Company', 'TBC', scrutineer.options.address],
-    })
-    .send({ from: accounts[0], gas: '6000000' });
-});
-    
-describe('Share creation', () => {
-  it('deploys a contract', () => {
-    assert.ok(seedToken.options.address);
-    assert.ok(scrutineer.options.address);
-    assert.ok(share.options.address);
-  });
-  it('can not accept native ether payments', async () => {
-    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: scrutineer.options.address, value: 100 })); //msg.data is empty, test receive()
-    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: scrutineer.options.address, value: 100, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
-    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: share.options.address, value: 200 })); //msg.data is empty, test receive()
-    await assert.rejects(web3.eth.sendTransaction({ from: accounts[1], to: share.options.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
-  });
-  it('has expected initial values', async () => {
-    const name = await share.methods.name().call();
-    const symbol = await share.methods.symbol().call();
-    const decimals = await share.methods.decimals().call();
-//    const numberOfShares = await share.methods.totalSupply().call();
-//    const owner = await share.methods.owner().call();
-//    const numberOfShareHolders = await share.methods.getShareholderCount().call();
-//    const decisionParameters = await share.methods.decisionParameters().call();
-
-    assert.equal(name, 'The Blockchain Company');
-    assert.equal(symbol, 'TBC');
-    assert.equal(decimals, 0);
-//    assert.equal(numberOfShares, 10000);
-//    assert.equal(owner, accounts[0]);
-//    assert.equal(numberOfShareHolders, 0);
-    /*
-    assert.equal(decisionParameters.decisionTime, 60*60*24*30);
-    assert.equal(decisionParameters.executionTime, 60*60*24*7);
-    assert.equal(decisionParameters.quorumNumerator, 0);
-    assert.equal(decisionParameters.quorumDenominator, 1);
-    assert.equal(decisionParameters.majorityNumerator, 1);
-    assert.equal(decisionParameters.majorityDenominator, 2);
-    */
+  beforeEach(async () => {
+    // Get a list of all accounts
+    accounts = await hre.web3.eth.getAccounts();
+  
+    const Scrutineer = await hre.ethers.getContractFactory("Scrutineer");
+    scrutineer = await Scrutineer.deploy();
+    await scrutineer.deployed();
+  
+    const Share = await hre.ethers.getContractFactory("Share");
+    share = await Share.deploy("Cryptoshare", "CTS", scrutineer.address);
+    await share.deployed();
   });
 
-  /*
-  it('sets the right owner', async () => {
-    const originalOwner = await share.methods.owner().call();
-    await assert.rejects( //test if accounts[1] cannot change the owner
-      share.methods.changeOwner(accounts[1]).send({ from: accounts[1] })
-    );
-    await share.methods.changeOwner(accounts[1]).send({ from: accounts[0] });
-    const newOwner = await share.methods.owner().call();
-    await assert.rejects( //test if accounts[0] cannot change the owner
-      share.methods.changeOwner(accounts[0]).send({ from: accounts[0] })
-    );
-
-    assert.equal(originalOwner, accounts[0]);
-    assert.equal(newOwner, accounts[1]);
+  describe('Share creation', () => {
+    it('can not accept ether payments', async () => {
+      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: scrutineer.address, value: 100 })); //msg.data is empty, test receive()
+      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: scrutineer.address, value: 100, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
+      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: share.address, value: 200 })); //msg.data is empty, test receive()
+      await assert.rejects(hre.web3.eth.sendTransaction({ from: accounts[0], to: share.address, value: 300, data: '0xABCDEF01' })); //msg.data is not empty, test fallback()
+    });
   });
-  it('can issue shares', async () => {
-    await share.methods.issueShares(2000).send({ from: accounts[0] });
-    const numberOfShares = await share.methods.totalSupply().call();
-    await assert.rejects( //test if accounts[1] cannot change the number of shares
-      share.methods.issueShares(3000).send({ from: accounts[1] })
-    );
-
-    assert.equal(numberOfShares, 12000);
-  });
-  it('can burn shares', async () => {
-    await share.methods.burnShares(2000).send({ from: accounts[0] });
-    const numberOfShares = await share.methods.totalSupply().call();
-    await assert.rejects( //test if accounts[1] cannot change the number of shares
-      share.methods.burnShares(3000).send({ from: accounts[1] })
-    );
-
-    assert.equal(numberOfShares, 8000);
-  });
-  it('can receive ether', async () => {
-    let initialBalance = await share.methods.getWeiBalance().call();
-    await web3.eth.sendTransaction({ from: accounts[0], to: share.options.address, value: 1000000 });
-    let receivedBalance = await share.methods.getWeiBalance().call();
-
-    assert.equal(initialBalance, 0);
-    assert.equal(receivedBalance, 1000000);
-  });
-  it('can receive ERC20 tokens', async () => {
-    let testGoldERC20 = testGold.options.address;
-    let companyERC20 = share.options.address;
-    let testGoldOwner = accounts[0];
-    let companyOwner = accounts[1];
-
-    await share.methods.changeOwner(companyOwner).send({ from: accounts[0] });
-
-    let initialGoldSupply = await testGold.methods.balanceOf(testGoldOwner).call();
-    let initialSharesSupply = await share.methods.balanceOf(companyERC20).call();
-
-    let initialOwnedGold = await share.methods.getTokenBalance(testGoldERC20).call();
-    let initialOwnedShares = await share.methods.getTokenBalance(companyERC20).call();
-
-    await testGold.methods.transfer(companyERC20, 200).send({ from: testGoldOwner });
-
-    let finalOwnedGold = await share.methods.getTokenBalance(testGoldERC20).call();
-
-    assert.equal(initialGoldSupply, 9000 * 10**18);
-    assert.equal(initialSharesSupply, 10000);
-    assert.equal(initialOwnedGold, 0);
-    assert.equal(initialOwnedShares, 10000);
-    assert.equal(finalOwnedGold, 200);
-  });
-  */
 });
