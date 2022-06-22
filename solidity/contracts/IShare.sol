@@ -30,6 +30,7 @@ error NoExternalProposal();
 error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
+error CannotVote();
 
 interface IShare {
     //external proposals
@@ -81,4 +82,6 @@ interface IShare {
     function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
     function resolveChangeDecisionParametersVote() external;
     function withdrawChangeDecisionParametersVote() external;
+
+    function vote(uint256 id, VoteChoice decision) external;
 }

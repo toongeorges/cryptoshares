@@ -174,7 +174,7 @@ contract Scrutineer is IScrutineer {
                 mapping(address => uint256) storage voteIndex = vP.voteIndex;
                 Vote[] storage votes = vP.votes;
                 uint256 index = voteIndex[voter];
-                uint256 numberOfVotes = vP.votes.length;
+                uint256 numberOfVotes = votes.length;
                 if ((index == 0) && ((votes.length == 0) || (votes[0].voter != voter))) { //if the voter has not voted before
                     voteIndex[voter] = numberOfVotes;
                     votes.push(Vote(voter, decision));

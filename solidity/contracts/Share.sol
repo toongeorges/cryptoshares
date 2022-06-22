@@ -581,12 +581,31 @@ contract Share is ERC20, IShare {
 
 
 
+    function vote(uint256 id, VoteChoice decision) external override {
+        VoteParameters storage vP = proposals[id];
+        if ((vP.result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.VOTING_IN_PROGRESS) && (balanceOf(msg.sender) > 0)) { //vP.result could be e.g. WITHDRAWN while the voting stage is still in progress
+            mapping(address => uint256) storage voteIndex = vP.voteIndex;
+            Vote[] storage votes = vP.votes;
+            uint256 index = voteIndex[msg.sender];
+            uint256 numberOfVotes = votes.length;
+            if (index == 0) { //if the voter has not voted before, the first voter is address(this), this vote will be ignored
+                voteIndex[msg.sender] = numberOfVotes;
+                votes.push(Vote(msg.sender, decision));
+            } else { //shareHolders can vote as much as they want, but only their last vote counts (if they still hold shares at the moment the votes are counted).
+                votes[index] = Vote(msg.sender, decision);
+            }
+        } else {
+            revert CannotVote();
+        }
+    }
+
     function propose(ActionType voteType) internal returns (uint256, bool) {
         DecisionParameters storage dP = doGetDecisionParameters(voteType);
         uint256 index = proposals.length;
         VoteParameters storage vP = proposals.push();
         vP.startTime = uint64(block.timestamp); // 500 000 000 000 years is more than enough, save some storage space
         vP.decisionParameters = dP; //copy by value
+        vP.votes.push(Vote(address(this), VoteChoice.NO_VOTE)); //this reduces checks on index == 0 to be made in the vote method, to save gas for the vote method
 
         if (getOutstandingShareCount() == 0) { //auto approve if there are no shares outstanding
             vP.result = VoteResult.NO_OUTSTANDING_SHARES; 
@@ -660,7 +679,7 @@ contract Share is ERC20, IShare {
         uint256 noVote = 0;
 
         Vote[] storage votes = voteParameters.votes;
-        for (uint256 i = 0; i < votes.length; i++) {
+        for (uint256 i = 1; i < votes.length; i++) { //the first vote is from this address(this) with VoteChoice.NO_VOTE, ignore this vote
             Vote storage v = votes[i];
             uint256 votingPower = balanceOf(v.voter);
             if (votingPower > 0) { //do not consider votes of shareholders who sold their shares
