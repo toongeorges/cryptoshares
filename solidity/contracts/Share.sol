@@ -51,6 +51,7 @@ struct VoteParameters {
     DecisionParameters decisionParameters; //store this on creation, so it cannot be changed afterwards
 
     mapping(address => uint256) voteIndex;
+    uint256 countedVotes;
     Vote[] votes;
 
     uint256 inFavor;
@@ -213,7 +214,7 @@ contract Share is ERC20, IShare {
 
         uint256 start = info.unpackedIndex;
         uint256 end = start + amountToPack;
-        uint maxEnd = info.exchangesLength;
+        uint256 maxEnd = info.exchangesLength;
         if (end > maxEnd) {
             end = maxEnd;
         }
@@ -279,7 +280,7 @@ contract Share is ERC20, IShare {
 
         uint256 start = unpackedShareholderIndex;
         uint256 end = start + amountToPack;
-        uint maxEnd = shareholdersLength;
+        uint256 maxEnd = shareholdersLength;
         if (end > maxEnd) {
             end = maxEnd;
         }
@@ -334,13 +335,17 @@ contract Share is ERC20, IShare {
         return (startTime, decisionTime, executionTime);
     }
 
+    function getNumberOfVotes(uint256 id) public view override returns (uint256) {
+        return (proposals[id].votes.length - 1); //the vote at index 0 is from address(this) with VoteChoice.NO_VOTE and is ignored
+    }
+
     function getDetailedVoteResult(uint256 id) external view override returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256) {
         VoteParameters storage vP = proposals[id];
         DecisionParameters storage dP = vP.decisionParameters;
         VoteResult result = vP.result;
-        return isExpired(result, vP)
-             ? (VoteResult.EXPIRED, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0)
-             : (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, vP.inFavor, vP.against, vP.abstain, vP.noVote);
+        return isExpired(result, vP)          ? (VoteResult.EXPIRED, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0) :
+               (result == VoteResult.PARTIAL) ? (VoteResult.PARTIAL, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0) :
+                                                (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, vP.inFavor, vP.against, vP.abstain, vP.noVote);
     }
 
     function getVoteResult(uint256 id) public view override returns (VoteResult) {
@@ -381,7 +386,7 @@ contract Share is ERC20, IShare {
         externalProposals[id] = true;
 
         if (noSharesOutstanding) {
-            doMakeExternalProposal(id);
+            doResolveExternalProposal(id);
         } else {
             emit RequestExternalProposal(id);
         }
@@ -389,18 +394,26 @@ contract Share is ERC20, IShare {
         return id;
     }
 
-    function resolveExternalProposal(uint256 id) external override {
-        resolveExternalProposal(id, false);
+    //preferably resolve the vote at once, so voters can not trade shares during the resolution
+    function resolveExternalProposal(uint256 id) public override {
+        doResolveExternalProposal(id, getNumberOfVotes(id));
     }
 
-    function withdrawExternalProposal(uint256 id) external override isOwner {
-        resolveExternalProposal(id, true);
+    //if a vote has to be resolved in multiple times, because a gas limit prevents doing it at once, only allow the owner to do so
+    function resolveExternalProposal(uint256 id, uint256 pageSize) public override isOwner returns (uint256) {
+        return doResolveExternalProposal(id, pageSize);
     }
 
-    function resolveExternalProposal(uint256 id, bool withdraw) internal {
+    function doResolveExternalProposal(uint256 id, uint256 pageSize) internal returns (uint256) {
         if (externalProposals[id]) {
-            if (resultHasBeenUpdated(id, withdraw)) {
-                doMakeExternalProposal(id);
+            (bool isUpdated, uint256 remainingVotes) = resolveVote(id, pageSize);
+
+            if (remainingVotes > 0) {
+                return remainingVotes;
+            } else if (isUpdated) {
+                doResolveExternalProposal(id);
+
+                return remainingVotes;
             } else {
                 revert RequestNotResolved();
             }
@@ -409,7 +422,19 @@ contract Share is ERC20, IShare {
         }
     }
 
-    function doMakeExternalProposal(uint256 id) internal {
+    function withdrawExternalProposal(uint256 id) external override isOwner {
+        if (externalProposals[id]) {
+            if (withdrawVote(id)) {
+                doResolveExternalProposal(id);
+            } else {
+                revert RequestNotResolved();
+            }
+        } else {
+            revert NoExternalProposal();
+        }
+    }
+
+    function doResolveExternalProposal(uint256 id) internal {
         emit ExternalProposal(id, getVoteResult(id));
     }
 
@@ -433,27 +458,52 @@ contract Share is ERC20, IShare {
         }
     }
 
+    //preferably resolve the vote at once, so voters can not trade shares during the resolution
     function resolveChangeOwnerVote() public override {
-        resolveChangeOwner(false);
+        doResolveChangeOwnerVote(getNumberOfVotes(pendingNewOwnerId));
     }
 
-    function withdrawChangeOwnerVote() external override isOwner {
-        resolveChangeOwner(true);
+    //if a vote has to be resolved in multiple times, because a gas limit prevents doing it at once, only allow the owner to do so
+    function resolveChangeOwnerVote(uint256 pageSize) public override isOwner returns (uint256) {
+        return doResolveChangeOwnerVote(pageSize);
     }
 
-    function resolveChangeOwner(bool withdraw) internal {
+    function doResolveChangeOwnerVote(uint256 pageSize) internal returns (uint256) {
         uint256 id = pendingNewOwnerId;
         if (id != 0) {
-            if (resultHasBeenUpdated(id, withdraw)) {
-                doChangeOwner(id, newOwners[id]);
+            (bool isUpdated, uint256 remainingVotes) = resolveVote(id, pageSize);
 
-                pendingNewOwnerId = 0;
+            if (remainingVotes > 0) {
+                return remainingVotes;
+            } else if (isUpdated) {
+                doResolveChangeOwner(id);
+
+                return remainingVotes;
             } else {
                 revert RequestNotResolved();
             }
         } else {
             revert NoRequestPending();
         }
+    }
+
+    function withdrawChangeOwnerVote() external override isOwner {
+        uint256 id = pendingNewOwnerId;
+        if (id != 0) {
+            if (withdrawVote(id)) {
+                doResolveChangeOwner(id);
+            } else {
+                revert RequestNotResolved();
+            }
+        } else {
+            revert NoRequestPending();
+        }
+    }
+
+    function doResolveChangeOwner(uint256 id) internal {
+        doChangeOwner(id, newOwners[id]);
+
+        pendingNewOwnerId = 0;
     }
 
     function doChangeOwner(uint256 id, address newOwner) internal {
@@ -529,28 +579,53 @@ contract Share is ERC20, IShare {
         }
     }
 
+    //preferably resolve the vote at once, so voters can not trade shares during the resolution
     function resolveChangeDecisionParametersVote() public override {
-        resolveChangeDecisionParameters(false);
+        doResolveChangeDecisionParametersVote(getNumberOfVotes(pendingDecisionParametersId));
     }
 
-    function withdrawChangeDecisionParametersVote() external override isOwner {
-        resolveChangeDecisionParameters(true);
+    //if a vote has to be resolved in multiple times, because a gas limit prevents doing it at once, only allow the owner to do so
+    function resolveChangeDecisionParametersVote(uint256 pageSize) public override isOwner returns (uint256) {
+        return doResolveChangeDecisionParametersVote(pageSize);
     }
 
-    function resolveChangeDecisionParameters(bool withdraw) internal {
+    function doResolveChangeDecisionParametersVote(uint256 pageSize) internal returns (uint256) {
         uint256 id = pendingDecisionParametersId;
         if (id != 0) {
-            if (resultHasBeenUpdated(id, withdraw)) {
-                DecisionParameters storage dP = decisionParametersData[id];
-                doSetDecisionParameters(id, decisionParametersVoteType[id], dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+            (bool isUpdated, uint256 remainingVotes) = resolveVote(id, pageSize);
 
-                pendingDecisionParametersId = 0;
+            if (remainingVotes > 0) {
+                return remainingVotes;
+            } else if (isUpdated) {
+                doResolveChangeDecisionParameters(id);
+
+                return remainingVotes;
             } else {
                 revert RequestNotResolved();
             }
         } else {
             revert NoRequestPending();
         }
+    }
+
+    function withdrawChangeDecisionParametersVote() external override isOwner {
+        uint256 id = pendingDecisionParametersId;
+        if (id != 0) {
+            if (withdrawVote(id)) {
+                doResolveChangeDecisionParameters(id);
+            } else {
+                revert RequestNotResolved();
+            }
+        } else {
+            revert NoRequestPending();
+        }
+    }
+
+    function doResolveChangeDecisionParameters(uint256 id) internal {
+        DecisionParameters storage dP = decisionParametersData[id];
+        doSetDecisionParameters(id, decisionParametersVoteType[id], dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+
+        pendingDecisionParametersId = 0;
     }
 
     function doSetDecisionParameters(uint256 id, ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
@@ -573,10 +648,6 @@ contract Share is ERC20, IShare {
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
         return ((voteResult == VoteResult.APPROVED) || (voteResult == VoteResult.NO_OUTSTANDING_SHARES));
-    }
-
-    function resultHasBeenUpdated(uint256 id, bool withdraw) internal returns (bool) {
-        return withdraw ? withdrawVote(id) : resolveVote(id); //return true if a result is pending (id != 0) and if the vote has been withdrawn or resolved
     }
 
 
@@ -605,6 +676,7 @@ contract Share is ERC20, IShare {
         VoteParameters storage vP = proposals.push();
         vP.startTime = uint64(block.timestamp); // 500 000 000 000 years is more than enough, save some storage space
         vP.decisionParameters = dP; //copy by value
+        vP.countedVotes = 1; //the first vote is from this address(this) with VoteChoice.NO_VOTE, ignore this vote
         vP.votes.push(Vote(address(this), VoteChoice.NO_VOTE)); //this reduces checks on index == 0 to be made in the vote method, to save gas for the vote method
 
         if (getOutstandingShareCount() == 0) { //auto approve if there are no shares outstanding
@@ -633,33 +705,38 @@ contract Share is ERC20, IShare {
         }
     }
 
-    function resolveVote(uint256 id) internal returns (bool) { //The owner of the vote needs to resolve it so he can take appropriate action if needed
+    function resolveVote(uint256 id, uint256 pageSize) internal returns (bool, uint256) { //The owner of the vote needs to resolve it so he can take appropriate action if needed
         VoteParameters storage vP = proposals[id];
+        uint256 remainingVotes = 0;
         VoteResult result = vP.result;
-        if (result == VoteResult.PENDING) { //the result was already known before, we do not need to take action a second time, covers also the result NON_EXISTENT
+        if (result == VoteResult.PARTIAL) {
+            (remainingVotes, result) = countAndVerifyVotes(vP, pageSize);
+
+            if (remainingVotes == 0) {
+                vP.result = result;
+            }
+
+            return (true, remainingVotes); //the result field itself has not been updated if remainingVotes > 0, but votes have been counted
+        } else if (result == VoteResult.PENDING) { //the result was already known before, we do not need to take action a second time, covers also the result NON_EXISTENT
             VotingStage votingStage = getVotingStage(vP);
             if (votingStage == VotingStage.EXECUTION_HAS_ENDED) {
                 result = VoteResult.EXPIRED;
             } else {
-                uint256 outstandingShareCount = getOutstandingShareCount();
-                if (outstandingShareCount == 0) { //if somehow all shares have been bought back, then approve
+                if (getOutstandingShareCount() == 0) { //if somehow all shares have been bought back, then approve
                     result = VoteResult.APPROVED;
                 } else if (votingStage == VotingStage.VOTING_IN_PROGRESS) { //do nothing, wait for voting to end
-                    return false;
+                    return (false, 0);
                 } else { //votingStage == VotingStage.VOTING_HAS_ENDED
-                    (vP.inFavor, vP.against, vP.abstain, vP.noVote) = countVotes(vP);
-
-                    DecisionParameters storage dP = vP.decisionParameters;
-                    result = verifyVotes(dP, outstandingShareCount, vP.inFavor, vP.against, vP.abstain); //either REJECTED or APPROVED
+                    (remainingVotes, result) = countAndVerifyVotes(vP, pageSize);
                 }
             }
 
             vP.result = result;
 
-            return true; //the vote result has been updated
+            return (true, remainingVotes); //the vote result has been updated
         }
 
-        return false; //the vote result has not been updated
+        return (false, 0); //the vote result has not been updated
     }
 
 
@@ -672,14 +749,32 @@ contract Share is ERC20, IShare {
              :                                                        VotingStage.EXECUTION_HAS_ENDED;
     }
 
-    function countVotes(VoteParameters storage voteParameters) internal view returns (uint256, uint256, uint256, uint256) {
-        uint256 inFavor = 0;
-        uint256 against = 0;
-        uint256 abstain = 0;
-        uint256 noVote = 0;
+    function countAndVerifyVotes(VoteParameters storage vP, uint256 pageSize) internal returns (uint256, VoteResult) {
+        uint256 remainingVotes = countVotes(vP, pageSize);
+
+        if (remainingVotes == 0) {
+            DecisionParameters storage dP = vP.decisionParameters;
+            return (remainingVotes, verifyVotes(dP, vP.inFavor, vP.against, vP.abstain)); //either REJECTED or APPROVED
+        } else {
+            return (remainingVotes, VoteResult.PARTIAL);
+        }
+    }
+    
+    function countVotes(VoteParameters storage voteParameters, uint256 pageSize) internal returns (uint256) {
+        uint256 inFavor = voteParameters.inFavor;
+        uint256 against = voteParameters.against;
+        uint256 abstain = voteParameters.abstain;
+        uint256 noVote = voteParameters.noVote;
 
         Vote[] storage votes = voteParameters.votes;
-        for (uint256 i = 1; i < votes.length; i++) { //the first vote is from this address(this) with VoteChoice.NO_VOTE, ignore this vote
+        uint256 start = voteParameters.countedVotes;
+        uint256 end = start + pageSize;
+        uint256 maxEnd = votes.length;
+        if (end > maxEnd) {
+            end = maxEnd;
+        }
+
+        for (uint256 i = start; i < end; i++) {
             Vote storage v = votes[i];
             uint256 votingPower = balanceOf(v.voter);
             if (votingPower > 0) { //do not consider votes of shareholders who sold their shares
@@ -696,17 +791,22 @@ contract Share is ERC20, IShare {
             }
         }
 
-        return (inFavor, against, abstain, noVote);
+        voteParameters.inFavor = inFavor;
+        voteParameters.against = against;
+        voteParameters.abstain = abstain;
+        voteParameters.noVote = noVote;
+
+        return maxEnd - end;
     }
 
-    function verifyVotes(DecisionParameters storage dP, uint256 outstandingShareCount, uint256 inFavor, uint256 against, uint256 abstain) internal view returns (VoteResult) {
+    function verifyVotes(DecisionParameters storage dP, uint256 inFavor, uint256 against, uint256 abstain) internal view returns (VoteResult) {
         //first verify simple majority (the easiest calculation)
         if (against >= inFavor) {
             return VoteResult.REJECTED;
         }
 
         //then verify if the quorum is met
-        if (!isQuorumMet(dP.quorumNumerator, dP.quorumDenominator, inFavor + against + abstain, outstandingShareCount)) {
+        if (!isQuorumMet(dP.quorumNumerator, dP.quorumDenominator, inFavor + against + abstain, getOutstandingShareCount())) {
             return VoteResult.REJECTED;
         }
 

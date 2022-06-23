@@ -62,6 +62,7 @@ interface IShare {
     function getNumberOfProposals() external view returns (uint256);
     function getDecisionParameters(uint256 id) external view returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function getDecisionTimes(uint256 id) external view returns (uint64, uint64, uint64);
+    function getNumberOfVotes(uint256 id) external view returns (uint256);
     function getDetailedVoteResult(uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
     function getVoteResult(uint256 id) external view returns (VoteResult);
 
@@ -72,15 +73,18 @@ interface IShare {
 
     function makeExternalProposal() external returns (uint256);
     function resolveExternalProposal(uint256 id) external;
+    function resolveExternalProposal(uint256 id, uint256 pageSize) external returns (uint256);
     function withdrawExternalProposal(uint256 id) external;
 
     function changeOwner(address newOwner) external;
     function resolveChangeOwnerVote() external;
+    function resolveChangeOwnerVote(uint256 pageSize) external returns (uint256);
     function withdrawChangeOwnerVote() external;
 
     function getDecisionParameters(ActionType voteType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
     function resolveChangeDecisionParametersVote() external;
+    function resolveChangeDecisionParametersVote(uint256 pageSize) external returns (uint256);
     function withdrawChangeDecisionParametersVote() external;
 
     function vote(uint256 id, VoteChoice decision) external;
