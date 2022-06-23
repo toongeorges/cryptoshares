@@ -646,8 +646,222 @@ contract Share is ERC20, IShare {
 
 
 
+    function issueShares(uint256 numberOfShares) external override {
+        doCorporateAction(ActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+    }
+
+    function destroyShares(uint256 numberOfShares) external override {
+        doCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+    }
+
+    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override {
+        require(getTreasuryShareCount() >= numberOfShares);
+        doCorporateAction(ActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
+    }
+
+    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override {
+        verifyAvailable(currency, numberOfShares*price);
+        doCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
+    }
+
+    function cancelOrder(address exchangeAddress, uint256 orderId) external override {
+        doCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
+    }
+
+    function withdrawFunds(address destination, address currency, uint256 amount) external override {
+        verifyAvailable(currency, amount);
+        doCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
+    }
+
+    function doCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
+        if (pendingCorporateActionId == 0) {
+            (uint256 id, bool noSharesOutstanding) = propose(decisionType);
+
+            CorporateActionData storage corporateAction = corporateActionsData[id];
+            corporateAction.decisionType = decisionType;
+            corporateAction.numberOfShares = (numberOfShares != 0) ? numberOfShares : getMaxOutstandingShareCount();
+            corporateAction.exchange = exchangeAddress;
+            corporateAction.currency = currency;
+            corporateAction.amount = amount;
+            corporateAction.optionalCurrency = optionalCurrency;
+            corporateAction.optionalAmount = optionalAmount;
+
+            if (noSharesOutstanding) {
+                executeCorporateAction(id, VoteResult.NO_OUTSTANDING_SHARES, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+            } else {
+                pendingCorporateActionId = id;
+
+                emit RequestCorporateAction(id, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+            }
+        } else {
+            revert RequestPending();
+        }
+    }
+ 
+    //preferably resolve the vote at once, so voters can not trade shares during the resolution
+    function resolveCorporateActionVote() public override {
+        doResolveCorporateActionVote(getNumberOfVotes(pendingCorporateActionId));
+    }
+
+    //if a vote has to be resolved in multiple times, because a gas limit prevents doing it at once, only allow the owner to do so
+    function resolveCorporateActionVote(uint256 pageSize) public override isOwner returns (uint256) {
+        return doResolveCorporateActionVote(pageSize);
+    }
+
+    function doResolveCorporateActionVote(uint256 pageSize) internal returns (uint256) {
+        uint256 id = pendingCorporateActionId;
+        if (id != 0) {
+            (bool isUpdated, uint256 remainingVotes) = resolveVote(id, pageSize);
+
+            if (remainingVotes > 0) {
+                return remainingVotes;
+            } else if (isUpdated) {
+                doResolveCorporateAction(id);
+
+                return remainingVotes;
+            } else {
+                revert RequestNotResolved();
+            }
+        } else {
+            revert NoRequestPending();
+        }
+    }
+
+    function withdrawCorporateActionVote() external override isOwner {
+        uint256 id = pendingCorporateActionId;
+        if (id != 0) {
+            if (withdrawVote(id)) {
+                doResolveCorporateAction(id);
+            } else {
+                revert RequestNotResolved();
+            }
+        } else {
+            revert NoRequestPending();
+        }
+    }
+
+    function doResolveCorporateAction(uint256 id) internal {
+        VoteResult voteResult = getVoteResult(id);
+
+        CorporateActionData storage cA = corporateActionsData[id];
+        address currency = cA.currency;
+        uint256 amount = cA.amount;
+        address optionalCurrency = cA.optionalCurrency;
+        uint256 optionalAmount = cA.optionalAmount;
+
+        executeCorporateAction(id, voteResult, cA.decisionType, cA.numberOfShares, cA.exchange, currency, amount, optionalCurrency, optionalAmount);
+
+        pendingCorporateActionId = 0;
+
+        if ((optionalCurrency != address(0)) && isApproved(voteResult)) { //(optionalCurrency != address(0)) implies that (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND)
+            doCorporateAction(ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
+        }
+    }
+
+    function executeCorporateAction(uint256 id, VoteResult voteResult, ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
+        if (isApproved(voteResult)) {
+            if (decisionType < ActionType.REVERSE_SPLIT) { //Solidity does not have a switch statement (except in assembly code)
+                if (decisionType < ActionType.RAISE_FUNDS) {
+                    if (decisionType == ActionType.ISSUE_SHARES) {
+                        _mint(address(this), numberOfShares);
+                    } else { //decisionType == ActionType.DESTROY_SHARES
+                        _burn(address(this), numberOfShares);
+                    }
+                } else if (decisionType < ActionType.CANCEL_ORDER) {
+                    if (decisionType == ActionType.RAISE_FUNDS) {
+                        increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
+                        registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
+                        IExchange exchange = IExchange(exchangeAddress);
+                        exchange.ask(address(this), numberOfShares, currency, amount, optionalAmount);
+                    } else { //decisionType == ActionType.BUY_BACK
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                        registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
+                        IExchange exchange = IExchange(exchangeAddress);
+                        exchange.bid(address(this), numberOfShares, currency, amount, optionalAmount);
+                    }
+                } else {
+                    if (decisionType == ActionType.CANCEL_ORDER) {
+                        IExchange exchange = IExchange(exchangeAddress);
+                        exchange.cancel(amount); //the amount field is used to store the order id since it is of the same type
+                    } else { //decisionType == ActionType.WITHDRAW_FUNDS
+                        safeTransfer(IERC20(currency), exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+                    }
+                }
+            } else if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
+            /*
+                if (optionalCurrency == address(0)) {
+                    IERC20 erc20 = IERC20(currency);
+                    for (uint256 i = 0; i < shareholders.length; i++) {
+                        address shareholder = shareholders[i];
+                        safeTransfer(erc20, shareholder, balanceOf(shareholder)*amount);
+                    }
+                } //else a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action will be triggered in the resolveCorporateAction() method
+                */
+            } else if (decisionType == ActionType.REVERSE_SPLIT) {
+                /*
+                doReverseSplit(address(this), optionalAmount);
+
+                uint256 availableAmount = getAvailableAmount(currency); //do not execute the getAvailableAmount() method every time again in the loop!
+                IERC20 erc20 = IERC20(currency);
+                for (uint256 i = 0; i < shareholders.length; i++) {
+                    address shareholder = shareholders[i];
+
+                    //pay out fractional shares
+                    uint256 payOut = (balanceOf(shareholder)%optionalAmount)*amount;
+                    if (availableAmount >= payOut) { //availableAmount may be < erc20.balanceOf(address(this)), because we may still have a pending allowance at an exchange!
+                        safeTransfer(erc20, shareholder, payOut);
+                        availableAmount -= payOut;
+                    } else {
+                        revert(); //run out of funds
+                    }
+
+                    //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
+                    doReverseSplit(shareholder, optionalAmount);
+                }
+                */
+            } else { //decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND
+                //work around there being no memory mapping in Solidity
+                /*
+                IERC20 optionalERC20 = IERC20(optionalCurrency);
+                Vote[] memory votes = scrutineer.getVotes(pendingNewOwnerId);
+                for (uint256 i = 0; i < votes.length; i++) {
+                    Vote memory v = votes[i];
+                    if (v.choice == VoteChoice.IN_FAVOR) {
+                        address shareholder = v.voter;
+                        optionalERC20.safeIncreaseAllowance(shareholder, balanceOf(shareholder)*optionalAmount);
+                    }
+                }
+
+                IERC20 erc20 = IERC20(currency);
+                for (uint256 i = 0; i < shareholders.length; i++) {
+                    address shareholder = shareholders[i];
+                    uint256 optionalAllowance = optionalERC20.allowance(address(this), shareholder);
+                    if (optionalAllowance > 0) {
+                        optionalERC20.safeDecreaseAllowance(shareholder, optionalAllowance);
+                        safeTransfer(optionalERC20, shareholder, optionalAllowance);
+                    } else {
+                        safeTransfer(erc20, shareholder, balanceOf(shareholder)*amount);
+                    }
+                }
+                */
+            }
+        }
+
+        emit CorporateAction(id, voteResult, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+    }
+
+
+
     function isApproved(VoteResult voteResult) internal pure returns (bool) {
         return ((voteResult == VoteResult.APPROVED) || (voteResult == VoteResult.NO_OUTSTANDING_SHARES));
+    }
+
+    function verifyAvailable(address currency, uint256 amount) internal view {
+        require(getAvailableAmount(currency) >= amount);
+    }
+
+    function safeTransfer(IERC20 token, address destination, uint256 amount) internal {
+        token.safeTransfer(destination, amount);
     }
 
 
