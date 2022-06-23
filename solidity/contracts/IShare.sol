@@ -42,8 +42,8 @@ interface IShare {
     event ChangeOwner(uint256 indexed id, VoteResult indexed voteResult, address indexed newOwner);
 
     //actions changing how decisions are made
-    event RequestChangeDecisionParameters(uint256 indexed id, ActionType indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
-    event ChangeDecisionParameters(uint256 indexed id, VoteResult indexed voteResult, ActionType indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event RequestChangeDecisionParameters(uint256 indexed id, uint16 indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
+    event ChangeDecisionParameters(uint256 indexed id, VoteResult indexed voteResult, uint16 indexed voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
     /*corporate actions
       the meaning of the event parameters depend on the decisionType and are as follows:
@@ -124,10 +124,11 @@ interface IShare {
 
     function isExternalProposal(uint256 id) external view returns (bool);
     function getProposedOwner(uint256 id) external view returns (address);
-    function getProposedDecisionParameters(uint256 id) external view returns (ActionType, uint64, uint64, uint32, uint32, uint32, uint32);
+    function getProposedDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
     function getProposedCorporateAction(uint256 id) external view returns (ActionType, uint256, address, address, uint256, address, uint256);
 
     function makeExternalProposal() external returns (uint256);
+    function makeExternalProposal(uint16 subType) external returns (uint256);
     function resolveExternalProposal(uint256 id) external;
     function resolveExternalProposal(uint256 id, uint256 pageSize) external returns (uint256);
     function withdrawExternalProposal(uint256 id) external;
@@ -138,7 +139,9 @@ interface IShare {
     function withdrawChangeOwnerVote() external;
 
     function getDecisionParameters(ActionType voteType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
+    function getExternalProposalDecisionParameters(uint16 subType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
+    function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
     function resolveChangeDecisionParametersVote() external;
     function resolveChangeDecisionParametersVote(uint256 pageSize) external returns (uint256);
     function withdrawChangeDecisionParametersVote() external;

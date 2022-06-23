@@ -92,12 +92,12 @@ contract Share is ERC20, IShare {
     address[] private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
 
     //proposals
-    mapping(ActionType => DecisionParameters) private decisionParameters;
+    mapping(uint16 => DecisionParameters) private decisionParameters;
     VoteParameters[] private proposals;
 
     mapping(uint256 => bool) private externalProposals;
     mapping(uint256 => address) private newOwners;
-    mapping(uint256 => ActionType) private decisionParametersVoteType;
+    mapping(uint256 => uint16) private decisionParametersVoteType;
     mapping(uint256 => DecisionParameters) private decisionParametersData;
     mapping(uint256 => CorporateActionData) private corporateActionsData;
 
@@ -368,7 +368,7 @@ contract Share is ERC20, IShare {
         return newOwners[id];
     }
 
-    function getProposedDecisionParameters(uint256 id) external view override returns (ActionType, uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getProposedDecisionParameters(uint256 id) external view override returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32) {
         DecisionParameters storage dP = decisionParametersData[id];
         return (decisionParametersVoteType[id], dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
@@ -380,8 +380,12 @@ contract Share is ERC20, IShare {
 
 
 
-    function makeExternalProposal() external override isOwner returns (uint256) {
-        (uint256 id, bool noSharesOutstanding) = propose(ActionType.EXTERNAL);
+    function makeExternalProposal() external override returns (uint256) {
+        return makeExternalProposal(0);
+    }
+
+    function makeExternalProposal(uint16 subType) public override isOwner returns (uint256) {
+        (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.EXTERNAL) + subType);
 
         externalProposals[id] = true;
 
@@ -442,7 +446,7 @@ contract Share is ERC20, IShare {
 
     function changeOwner(address newOwner) external override isOwner {
         if (pendingNewOwnerId == 0) {
-            (uint256 id, bool noSharesOutstanding) = propose(ActionType.CHANGE_OWNER);
+            (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.CHANGE_OWNER));
 
             newOwners[id] = newOwner;
 
@@ -519,12 +523,20 @@ contract Share is ERC20, IShare {
 
 
     function getDecisionParameters(ActionType voteType) external override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+        return doGetDecisionParametersReturnValues(uint16(voteType));
+    }
+
+    function getExternalProposalDecisionParameters(uint16 subType) external override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+        return doGetDecisionParametersReturnValues(uint16(ActionType.EXTERNAL) + subType);
+    }
+
+    function doGetDecisionParametersReturnValues(uint16 voteType) internal returns (uint64, uint64, uint32, uint32, uint32, uint32) {
         DecisionParameters storage dP = doGetDecisionParameters(voteType);
         return (dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
-    function doGetDecisionParameters(ActionType voteType) internal returns (DecisionParameters storage) {
-        if (voteType == ActionType.DEFAULT) {
+    function doGetDecisionParameters(uint16 voteType) internal returns (DecisionParameters storage) {
+        if (voteType == 0) {
             return doGetDefaultDecisionParameters();
         } else {
             DecisionParameters storage dP = decisionParameters[voteType];
@@ -535,7 +547,7 @@ contract Share is ERC20, IShare {
     }
 
     function doGetDefaultDecisionParameters() internal returns (DecisionParameters storage) {
-        DecisionParameters storage dP = decisionParameters[ActionType.DEFAULT];
+        DecisionParameters storage dP = decisionParameters[0];
         if (dP.quorumDenominator == 0) { //default decisionParameters have not been initialized, initialize with sensible values
             dP.decisionTime = 2592000; //30 days
             dP.executionTime = 604800; //7 days
@@ -544,18 +556,26 @@ contract Share is ERC20, IShare {
             dP.majorityNumerator = 1;
             dP.majorityDenominator = 2;
 
-            emit ChangeDecisionParameters(proposals.length, VoteResult.NON_EXISTENT, ActionType.DEFAULT, 2592000, 604800, 0, 1, 1, 2);
+            emit ChangeDecisionParameters(proposals.length, VoteResult.NON_EXISTENT, 0, 2592000, 604800, 0, 1, 1, 2);
         }
         return dP;
     }
 
-    function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override isOwner {
+    function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override {
+        doChangeDecisionParameters(uint16(voteType), decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+    }
+
+    function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override {
+        doChangeDecisionParameters(uint16(ActionType.EXTERNAL) + subType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+    }
+
+    function doChangeDecisionParameters(uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal isOwner {
         if (pendingDecisionParametersId == 0) {
             require(quorumDenominator > 0);
             require(majorityDenominator > 0);
             require((majorityNumerator << 1) >= majorityDenominator);
 
-            (uint256 id, bool noSharesOutstanding) = propose(ActionType.CHANGE_DECISION_PARAMETERS);
+            (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.CHANGE_DECISION_PARAMETERS));
 
             decisionParametersVoteType[id] = voteType;
 
@@ -628,7 +648,7 @@ contract Share is ERC20, IShare {
         pendingDecisionParametersId = 0;
     }
 
-    function doSetDecisionParameters(uint256 id, ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
+    function doSetDecisionParameters(uint256 id, uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
         VoteResult voteResult = getVoteResult(id);
 
         if (isApproved(voteResult)) {
@@ -675,7 +695,7 @@ contract Share is ERC20, IShare {
 
     function doCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
         if (pendingCorporateActionId == 0) {
-            (uint256 id, bool noSharesOutstanding) = propose(decisionType);
+            (uint256 id, bool noSharesOutstanding) = propose(uint16(decisionType));
 
             CorporateActionData storage corporateAction = corporateActionsData[id];
             corporateAction.decisionType = decisionType;
@@ -884,7 +904,7 @@ contract Share is ERC20, IShare {
         }
     }
 
-    function propose(ActionType voteType) internal returns (uint256, bool) {
+    function propose(uint16 voteType) internal returns (uint256, bool) {
         DecisionParameters storage dP = doGetDecisionParameters(voteType);
         uint256 index = proposals.length;
         VoteParameters storage vP = proposals.push();
