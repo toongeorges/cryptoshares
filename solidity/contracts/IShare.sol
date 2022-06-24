@@ -128,19 +128,19 @@ interface IShare {
     function makeExternalProposal() external returns (uint256);
     function makeExternalProposal(uint16 subType) external returns (uint256);
 
-    function changeOwner(address newOwner) external;
+    function changeOwner(address newOwner) external returns (uint256);
 
     function getDecisionParameters(ActionType voteType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function getExternalProposalDecisionParameters(uint16 subType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
-    function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
-    function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
+    function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external returns (uint256);
+    function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external returns (uint256);
 
-    function issueShares(uint256 numberOfShares) external;
-    function destroyShares(uint256 numberOfShares) external;
-    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external;
-    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external;
-    function cancelOrder(address exchangeAddress, uint256 orderId) external;
-    function withdrawFunds(address destination, address currency, uint256 amount) external;
+    function issueShares(uint256 numberOfShares) external returns (uint256);
+    function destroyShares(uint256 numberOfShares) external returns (uint256);
+    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
+    function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
 
     function resolveVote() external;
     function resolveVote(uint256 pageSize) external returns (uint256);

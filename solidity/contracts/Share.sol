@@ -111,6 +111,14 @@ contract Share is ERC20, IShare {
         require(msg.sender == owner);
     }
 
+    modifier verifyNoRequestPending() {
+        if (pendingRequestId == 0) {
+            _;
+        } else {
+            revert RequestPending();
+        }
+    }
+
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
         owner = msg.sender;
         shareholders.push(address(this)); //to make later operations on shareholders less costly
@@ -378,22 +386,18 @@ contract Share is ERC20, IShare {
         return makeExternalProposal(0);
     }
 
-    function makeExternalProposal(uint16 subType) public override isOwner returns (uint256) {
-        if (pendingRequestId == 0) {
-            (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.EXTERNAL) + subType);
+    function makeExternalProposal(uint16 subType) public override isOwner verifyNoRequestPending returns (uint256) {
+        (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.EXTERNAL) + subType);
 
-            if (noSharesOutstanding) {
-                doExternalProposal(id);
-            } else {
-                pendingRequestId = id;
-
-                emit RequestExternalProposal(id);
-            }
-
-            return id;
+        if (noSharesOutstanding) {
+            doExternalProposal(id);
         } else {
-            revert RequestPending();
+            pendingRequestId = id;
+
+            emit RequestExternalProposal(id);
         }
+
+        return id;
     }
 
     function doExternalProposal(uint256 id) internal {
@@ -402,22 +406,20 @@ contract Share is ERC20, IShare {
 
 
 
-    function changeOwner(address newOwner) external override isOwner {
-        if (pendingRequestId == 0) {
-            (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.CHANGE_OWNER));
+    function changeOwner(address newOwner) external override isOwner verifyNoRequestPending returns (uint256) {
+        (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.CHANGE_OWNER));
 
-            newOwners[id] = newOwner;
+        newOwners[id] = newOwner;
 
-            if (noSharesOutstanding) {
-                doChangeOwner(id, newOwner);
-            } else {
-                pendingRequestId = id;
-
-                emit RequestChangeOwner(id, newOwner);
-            }
+        if (noSharesOutstanding) {
+            doChangeOwner(id, newOwner);
         } else {
-            revert RequestPending();
+            pendingRequestId = id;
+
+            emit RequestChangeOwner(id, newOwner);
         }
+
+        return id;
     }
 
     function doChangeOwner(uint256 id, address newOwner) internal {
@@ -471,42 +473,40 @@ contract Share is ERC20, IShare {
         return dP;
     }
 
-    function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override {
-        doChangeDecisionParameters(uint16(voteType), decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+    function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override returns (uint256) {
+        return doChangeDecisionParameters(uint16(voteType), decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
     }
 
-    function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override {
-        doChangeDecisionParameters(uint16(ActionType.EXTERNAL) + subType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+    function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external override returns (uint256) {
+        return doChangeDecisionParameters(uint16(ActionType.EXTERNAL) + subType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
     }
 
-    function doChangeDecisionParameters(uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal isOwner {
-        if (pendingRequestId == 0) {
-            require(quorumDenominator > 0);
-            require(majorityDenominator > 0);
-            require((majorityNumerator << 1) >= majorityDenominator);
+    function doChangeDecisionParameters(uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal isOwner verifyNoRequestPending returns (uint256) {
+        require(quorumDenominator > 0);
+        require(majorityDenominator > 0);
+        require((majorityNumerator << 1) >= majorityDenominator);
 
-            (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.CHANGE_DECISION_PARAMETERS));
+        (uint256 id, bool noSharesOutstanding) = propose(uint16(ActionType.CHANGE_DECISION_PARAMETERS));
 
-            decisionParametersVoteType[id] = voteType;
+        decisionParametersVoteType[id] = voteType;
 
-            DecisionParameters storage dP = decisionParametersData[id];
-            dP.decisionTime = decisionTime;
-            dP.executionTime = executionTime;
-            dP.quorumNumerator = quorumNumerator;
-            dP.quorumDenominator = quorumDenominator;
-            dP.majorityNumerator = majorityNumerator;
-            dP.majorityDenominator = majorityDenominator;
+        DecisionParameters storage dP = decisionParametersData[id];
+        dP.decisionTime = decisionTime;
+        dP.executionTime = executionTime;
+        dP.quorumNumerator = quorumNumerator;
+        dP.quorumDenominator = quorumDenominator;
+        dP.majorityNumerator = majorityNumerator;
+        dP.majorityDenominator = majorityDenominator;
 
-            if (noSharesOutstanding) {
-                doSetDecisionParameters(id, voteType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-            } else {
-                pendingRequestId = id;
-
-                emit RequestChangeDecisionParameters(id, voteType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
-            }
+        if (noSharesOutstanding) {
+            doSetDecisionParameters(id, voteType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
         } else {
-            revert RequestPending();
+            pendingRequestId = id;
+
+            emit RequestChangeDecisionParameters(id, voteType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
         }
+
+        return id;
     }
 
     function doSetDecisionParameters(uint256 id, uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
@@ -527,55 +527,53 @@ contract Share is ERC20, IShare {
 
 
 
-    function issueShares(uint256 numberOfShares) external override {
-        initiateCorporateAction(ActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+    function issueShares(uint256 numberOfShares) external override returns (uint256) {
+        return initiateCorporateAction(ActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
-    function destroyShares(uint256 numberOfShares) external override {
-        initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+    function destroyShares(uint256 numberOfShares) external override returns (uint256) {
+        return initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
-    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override {
+    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override returns (uint256) {
         require(getTreasuryShareCount() >= numberOfShares);
-        initiateCorporateAction(ActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
+        return initiateCorporateAction(ActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
-    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override {
+    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override returns (uint256) {
         verifyAvailable(currency, numberOfShares*price);
-        initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
+        return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
-    function cancelOrder(address exchangeAddress, uint256 orderId) external override {
-        initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
+    function cancelOrder(address exchangeAddress, uint256 orderId) external override returns (uint256) {
+        return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
     }
 
-    function withdrawFunds(address destination, address currency, uint256 amount) external override {
+    function withdrawFunds(address destination, address currency, uint256 amount) external override returns (uint256) {
         verifyAvailable(currency, amount);
-        initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
+        return initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
     }
 
-    function initiateCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner {
-        if (pendingRequestId == 0) {
-            (uint256 id, bool noSharesOutstanding) = propose(uint16(decisionType));
+    function initiateCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner verifyNoRequestPending returns (uint256) {
+        (uint256 id, bool noSharesOutstanding) = propose(uint16(decisionType));
 
-            CorporateActionData storage corporateAction = corporateActionsData[id];
-            corporateAction.numberOfShares = (numberOfShares != 0) ? numberOfShares : getMaxOutstandingShareCount();
-            corporateAction.exchange = exchangeAddress;
-            corporateAction.currency = currency;
-            corporateAction.amount = amount;
-            corporateAction.optionalCurrency = optionalCurrency;
-            corporateAction.optionalAmount = optionalAmount;
+        CorporateActionData storage corporateAction = corporateActionsData[id];
+        corporateAction.numberOfShares = (numberOfShares != 0) ? numberOfShares : getMaxOutstandingShareCount();
+        corporateAction.exchange = exchangeAddress;
+        corporateAction.currency = currency;
+        corporateAction.amount = amount;
+        corporateAction.optionalCurrency = optionalCurrency;
+        corporateAction.optionalAmount = optionalAmount;
 
-            if (noSharesOutstanding) {
-                doCorporateAction(id, VoteResult.NO_OUTSTANDING_SHARES, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
-            } else {
-                pendingRequestId = id;
-
-                emit RequestCorporateAction(id, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
-            }
+        if (noSharesOutstanding) {
+            doCorporateAction(id, VoteResult.NO_OUTSTANDING_SHARES, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
         } else {
-            revert RequestPending();
+            pendingRequestId = id;
+
+            emit RequestCorporateAction(id, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
         }
+
+        return id;
     }
  
     function doCorporateAction(uint256 id, VoteResult voteResult, ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
