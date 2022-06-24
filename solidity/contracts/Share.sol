@@ -52,6 +52,7 @@ struct VoteParameters {
     DecisionParameters decisionParameters; //store this on creation, so it cannot be changed afterwards
 
     mapping(address => uint256) voteIndex;
+    mapping(address => uint256) spentVotes;
     uint256 countedVotes;
     Vote[] votes;
 
@@ -123,6 +124,7 @@ contract Share is ERC20, IShare {
         owner = msg.sender;
         shareholders.push(address(this)); //to make later operations on shareholders less costly
         shareholdersLength++;
+        proposals.push(); //make sure that the pendingRequestId for any request > 0
     }
 
 
@@ -137,6 +139,32 @@ contract Share is ERC20, IShare {
 
     fallback() external payable { //used to receive wei when msg.data is not empty
         revert DoNotAcceptEtherPayments();
+    }
+
+
+
+    function transfer(address to, uint256 amount) public virtual override returns (bool) {
+        preventDoubleVoting(msg.sender, to, amount);
+
+        return super.transfer(to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
+        preventDoubleVoting(from, to, amount);
+
+        return super.transferFrom(from, to, amount);
+    }
+
+    function preventDoubleVoting(address from, address to, uint256 amount) internal {
+        if (pendingRequestId != 0) { //if there is a request pending
+            mapping(address => uint256) storage spentVotes = proposals[pendingRequestId].spentVotes;
+            uint256 totalSpent = spentVotes[from];
+            if (totalSpent > 0) {
+                uint256 transferredSpentVotes = (totalSpent > amount) ? amount : totalSpent;
+                spentVotes[to] += transferredSpentVotes;
+                spentVotes[from] = totalSpent - transferredSpentVotes;
+            }
+        }
     }
 
 
@@ -686,15 +714,11 @@ contract Share is ERC20, IShare {
 
     //preferably resolve the vote at once, so voters can not trade shares during the resolution
     function resolveVote() public override {
-        doResolveVote(getNumberOfVotes(pendingRequestId));
+        resolveVote(getNumberOfVotes(pendingRequestId));
     }
 
     //if a vote has to be resolved in multiple times, because a gas limit prevents doing it at once, only allow the owner to do so
-    function resolveVote(uint256 pageSize) public override isOwner returns (uint256) {
-        return doResolveVote(pageSize);
-    }
-
-    function doResolveVote(uint256 pageSize) internal returns (uint256) {
+    function resolveVote(uint256 pageSize) public override returns (uint256) {
         uint256 id = pendingRequestId;
         if (id != 0) {
             (bool isUpdated, uint256 remainingVotes) = resolveVote(id, pageSize);
@@ -711,7 +735,7 @@ contract Share is ERC20, IShare {
         } else {
             revert NoRequestPending();
         }
-   }
+    }
 
     function withdrawVote() external override isOwner {
         uint256 id = pendingRequestId;
@@ -819,7 +843,7 @@ contract Share is ERC20, IShare {
         }
     }
 
-    function resolveVote(uint256 id, uint256 pageSize) internal returns (bool, uint256) { //The owner of the vote needs to resolve it so he can take appropriate action if needed
+    function resolveVote(uint256 id, uint256 pageSize) internal returns (bool, uint256) {
         VoteParameters storage vP = proposals[id];
         uint256 remainingVotes = 0;
         VoteResult result = vP.result;
@@ -890,17 +914,23 @@ contract Share is ERC20, IShare {
 
         for (uint256 i = start; i < end; i++) {
             Vote storage v = votes[i];
-            uint256 votingPower = balanceOf(v.voter);
-            if (votingPower > 0) { //do not consider votes of shareholders who sold their shares
-                VoteChoice choice = v.choice;
-                if (choice == VoteChoice.IN_FAVOR) {
-                    inFavor += votingPower;
-                } else if (choice == VoteChoice.AGAINST) {
-                    against += votingPower;
-                } else if (choice == VoteChoice.ABSTAIN) {
-                    abstain += votingPower;
-                } else { //no votes do not count towards the quorum
-                    noVote += votingPower;
+            address voter = v.voter;
+            uint256 totalVotingPower = balanceOf(voter);
+            if (totalVotingPower > 0) { //do not consider votes of shareholders who sold their shares
+                mapping(address => uint256) storage spentVotes = voteParameters.spentVotes;
+                uint256 votingPower = totalVotingPower - spentVotes[voter]; //prevent "double spending" of votes
+                if (votingPower > 0) { //do not consider votes of shareholders who bought shares from others who already voted
+                    VoteChoice choice = v.choice;
+                    if (choice == VoteChoice.IN_FAVOR) {
+                        inFavor += votingPower;
+                    } else if (choice == VoteChoice.AGAINST) {
+                        against += votingPower;
+                    } else if (choice == VoteChoice.ABSTAIN) {
+                        abstain += votingPower;
+                    } else { //no votes do not count towards the quorum
+                        noVote += votingPower;
+                    }
+                    spentVotes[voter] = totalVotingPower;
                 }
             }
         }
