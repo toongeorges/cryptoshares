@@ -26,7 +26,6 @@ struct DecisionParameters {
 }
 
 error DoNotAcceptEtherPayments();
-error NoExternalProposal();
 error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
@@ -116,35 +115,25 @@ interface IShare {
     function packShareholders(uint256 amountToPack) external;
 
     function getNumberOfProposals() external view returns (uint256);
-    function getDecisionParameters(uint256 id) external view returns (uint64, uint64, uint32, uint32, uint32, uint32);
+    function getDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
     function getDecisionTimes(uint256 id) external view returns (uint64, uint64, uint64);
     function getNumberOfVotes(uint256 id) external view returns (uint256);
     function getDetailedVoteResult(uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
     function getVoteResult(uint256 id) external view returns (VoteResult);
 
-    function isExternalProposal(uint256 id) external view returns (bool);
     function getProposedOwner(uint256 id) external view returns (address);
     function getProposedDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
     function getProposedCorporateAction(uint256 id) external view returns (ActionType, uint256, address, address, uint256, address, uint256);
 
     function makeExternalProposal() external returns (uint256);
     function makeExternalProposal(uint16 subType) external returns (uint256);
-    function resolveExternalProposal(uint256 id) external;
-    function resolveExternalProposal(uint256 id, uint256 pageSize) external returns (uint256);
-    function withdrawExternalProposal(uint256 id) external;
 
     function changeOwner(address newOwner) external;
-    function resolveChangeOwnerVote() external;
-    function resolveChangeOwnerVote(uint256 pageSize) external returns (uint256);
-    function withdrawChangeOwnerVote() external;
 
     function getDecisionParameters(ActionType voteType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function getExternalProposalDecisionParameters(uint16 subType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
     function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
     function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external;
-    function resolveChangeDecisionParametersVote() external;
-    function resolveChangeDecisionParametersVote(uint256 pageSize) external returns (uint256);
-    function withdrawChangeDecisionParametersVote() external;
 
     function issueShares(uint256 numberOfShares) external;
     function destroyShares(uint256 numberOfShares) external;
@@ -152,9 +141,10 @@ interface IShare {
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external;
     function cancelOrder(address exchangeAddress, uint256 orderId) external;
     function withdrawFunds(address destination, address currency, uint256 amount) external;
-    function resolveCorporateActionVote() external;
-    function resolveCorporateActionVote(uint256 pageSize) external returns (uint256);
-    function withdrawCorporateActionVote() external;
+
+    function resolveVote() external;
+    function resolveVote(uint256 pageSize) external returns (uint256);
+    function withdrawVote() external;
 
     function vote(uint256 id, VoteChoice decision) external;
 }
