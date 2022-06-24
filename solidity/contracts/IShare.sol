@@ -11,7 +11,7 @@ enum VoteChoice {
 }
 
 enum VoteResult {
-    NON_EXISTENT, PENDING, PARTIAL, APPROVED, REJECTED, EXPIRED, WITHDRAWN, NO_OUTSTANDING_SHARES
+    NON_EXISTENT, PENDING, PARTIAL_VOTE_COUNT, PARTIAL_EXECUTION, APPROVED, REJECTED, EXPIRED, WITHDRAWN, NO_OUTSTANDING_SHARES
 }
 
 struct DecisionParameters {
@@ -141,6 +141,10 @@ interface IShare {
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
     function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
+
+    function startReverseSplit(uint256 reverseSplitToOne, address currency, uint256 amount) external returns (uint256);
+    function startDistributeDividend(address currency, uint256 amount) external returns (uint256);
+    function startDistributeOptionalDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external returns (uint256);
 
     function resolveVote() external;
     function resolveVote(uint256 pageSize) external returns (uint256);

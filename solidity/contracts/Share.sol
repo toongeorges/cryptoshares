@@ -353,13 +353,13 @@ contract Share is ERC20, IShare {
     }
 
     function getDecisionParameters(uint256 id) external view override returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32) {
-        VoteParameters storage vP = proposals[id];
+        VoteParameters storage vP = getProposal(id);
         DecisionParameters storage dP = vP.decisionParameters;
         return (vP.voteType, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
     function getDecisionTimes(uint256 id) external view override returns (uint64, uint64, uint64) {
-        VoteParameters storage vP = proposals[id];
+        VoteParameters storage vP = getProposal(id);
         DecisionParameters storage dP = vP.decisionParameters;
 
         uint64 startTime = vP.startTime;
@@ -370,26 +370,30 @@ contract Share is ERC20, IShare {
     }
 
     function getNumberOfVotes(uint256 id) public view override returns (uint256) {
-        return (proposals[id].votes.length - 1); //the vote at index 0 is from address(this) with VoteChoice.NO_VOTE and is ignored
+        return (getProposal(id).votes.length - 1); //the vote at index 0 is from address(this) with VoteChoice.NO_VOTE and is ignored
     }
 
     function getDetailedVoteResult(uint256 id) external view override returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256) {
-        VoteParameters storage vP = proposals[id];
+        VoteParameters storage vP = getProposal(id);
         DecisionParameters storage dP = vP.decisionParameters;
         VoteResult result = vP.result;
-        return isExpired(result, vP)          ? (VoteResult.EXPIRED, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0) :
-               (result == VoteResult.PARTIAL) ? (VoteResult.PARTIAL, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0) :
-                                                (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, vP.inFavor, vP.against, vP.abstain, vP.noVote);
+        return isExpired(result, vP)                     ? (VoteResult.EXPIRED, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0) :
+               (result == VoteResult.PARTIAL_VOTE_COUNT) ? (VoteResult.PARTIAL_VOTE_COUNT, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0) :
+                                                           (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, vP.inFavor, vP.against, vP.abstain, vP.noVote);
     }
 
-    function getVoteResult(uint256 id) public view override returns (VoteResult) {
-        VoteParameters storage vP = proposals[id];
+    function getVoteResult(uint256 id) external view override returns (VoteResult) {
+        VoteParameters storage vP = getProposal(id);
         VoteResult result = vP.result;
         return isExpired(result, vP) ? VoteResult.EXPIRED : result;
     }
 
     function isExpired(VoteResult result, VoteParameters storage vP) internal view returns (bool) {
         return (result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.EXECUTION_HAS_ENDED);
+    }
+
+    function getProposal(uint256 id) internal view returns (VoteParameters storage) { //reduces the size of the compiled contract when this is wrapped in a function
+        return proposals[id];
     }
 
 
@@ -405,7 +409,7 @@ contract Share is ERC20, IShare {
 
     function getProposedCorporateAction(uint256 id) external view override returns (ActionType, uint256, address, address, uint256, address, uint256) {
         CorporateActionData storage cA = corporateActionsData[id];
-        return (ActionType(proposals[id].voteType), cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
+        return (ActionType(getProposal(id).voteType), cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
     }
 
 
@@ -429,7 +433,7 @@ contract Share is ERC20, IShare {
     }
 
     function doExternalProposal(uint256 id) internal {
-        emit ExternalProposal(id, getVoteResult(id));
+        emit ExternalProposal(id, getProposal(id).result);
     }
 
 
@@ -451,7 +455,7 @@ contract Share is ERC20, IShare {
     }
 
     function doChangeOwner(uint256 id, address newOwner) internal {
-        VoteResult voteResult = getVoteResult(id);
+        VoteResult voteResult = getProposal(id).result;
 
         if (isApproved(voteResult)) {
             owner = newOwner;
@@ -538,7 +542,7 @@ contract Share is ERC20, IShare {
     }
 
     function doSetDecisionParameters(uint256 id, uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal {
-        VoteResult voteResult = getVoteResult(id);
+        VoteResult voteResult = getProposal(id).result;
 
         if (isApproved(voteResult)) {
             DecisionParameters storage dP = decisionParameters[voteType];
@@ -560,16 +564,20 @@ contract Share is ERC20, IShare {
     }
 
     function destroyShares(uint256 numberOfShares) external override returns (uint256) {
+        require(getTreasuryShareCount() >= numberOfShares);
+
         return initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override returns (uint256) {
         require(getTreasuryShareCount() >= numberOfShares);
+
         return initiateCorporateAction(ActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external override returns (uint256) {
         verifyAvailable(currency, numberOfShares*price);
+
         return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
@@ -579,8 +587,36 @@ contract Share is ERC20, IShare {
 
     function withdrawFunds(address destination, address currency, uint256 amount) external override returns (uint256) {
         verifyAvailable(currency, amount);
+
         return initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
     }
+
+
+
+    function startReverseSplit(uint256 reverseSplitToOne, address currency, uint256 amount) external override returns (uint256) {
+        require(getLockedUpAmount(address(this)) == 0); //do not start a reverse split if some exchanges may still be selling shares, cancel these orders first
+        verifyAvailable(currency, getOutstandingShareCount()*amount); //possible worst case if everyone owns 1 share, this is not a restriction, we can always distribute a dummy token that has a higher supply than this share and have a bid order for this dummy token on an exchange
+
+        return initiateCorporateAction(ActionType.REVERSE_SPLIT, 0, address(0), currency, amount, address(0), reverseSplitToOne);
+    }
+
+    function startDistributeDividend(address currency, uint256 amount) external override returns (uint256) {
+        uint256 maxOutstandingShareCount = getMaxOutstandingShareCount();
+        verifyAvailable(currency, maxOutstandingShareCount*amount);
+
+        return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, address(0), 0);
+    }
+ 
+    function startDistributeOptionalDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external override returns (uint256) {
+        require(optionalCurrency != address(0));
+        uint256 maxOutstandingShareCount = getMaxOutstandingShareCount();
+        verifyAvailable(currency, maxOutstandingShareCount*amount);
+        verifyAvailable(optionalCurrency, maxOutstandingShareCount*optionalAmount);
+
+        return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
+    }
+
+
 
     function initiateCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner verifyNoRequestPending returns (uint256) {
         (uint256 id, bool noSharesOutstanding) = propose(uint16(decisionType));
@@ -751,13 +787,13 @@ contract Share is ERC20, IShare {
     }
 
     function doResolve(uint256 id) internal {
-        uint16 voteTypeInt = proposals[id].voteType;
+        uint16 voteTypeInt = getProposal(id).voteType;
         if (voteTypeInt >= uint16(ActionType.EXTERNAL)) {
             doExternalProposal(id);
         } else {
             ActionType voteType = ActionType(voteTypeInt);
             if (voteType > ActionType.CHANGE_DECISION_PARAMETERS) { //this is a corporate action
-                VoteResult voteResult = getVoteResult(id);
+                VoteResult voteResult = getProposal(id).result;
 
                 CorporateActionData storage cA = corporateActionsData[id];
                 address currency = cA.currency;
@@ -765,15 +801,20 @@ contract Share is ERC20, IShare {
                 address optionalCurrency = cA.optionalCurrency;
                 uint256 optionalAmount = cA.optionalAmount;
 
-                doCorporateAction(id, voteResult, ActionType(proposals[id].voteType), cA.numberOfShares, cA.exchange, currency, amount, optionalCurrency, optionalAmount);
+                //special cases, these need to be executed partially, because we have to iterate over all shareholders and this may not be possible in a single transaction
+                if (isApproved(voteResult) && (voteType >= ActionType.REVERSE_SPLIT) && (voteType <= ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND)) {
+                    if ((voteType == ActionType.DISTRIBUTE_DIVIDEND) && (optionalCurrency != address(0))) { //we need to trigger ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, which requires another vote to either approve or reject the optional dividend
+                        pendingRequestId = 0; //otherwise we cannot start the optional dividend corporate action
 
-                pendingRequestId = 0;
+                        initiateCorporateAction(ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
+                    } else { //do not set pendingRequestId = 0, instead set the result to VoteResult.PARTIAL_EXECUTION
+                        getProposal(id).result = VoteResult.PARTIAL_EXECUTION;
+                    }
 
-                if ((optionalCurrency != address(0)) && isApproved(voteResult)) { //(optionalCurrency != address(0)) implies that (decisionType == CorporateActionType.DISTRIBUTE_DIVIDEND)
-                    initiateCorporateAction(ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
+                    return; //do not let the pendingRequestId be set to 0 again, since these corporate actions are not finished yet, we still need to iterate over the shareholders
+                } else {
+                    doCorporateAction(id, voteResult, ActionType(getProposal(id).voteType), cA.numberOfShares, cA.exchange, currency, amount, optionalCurrency, optionalAmount);
                 }
-
-                return; //do not let the pendingRequestId be set to 0 again, since we initiated the new corporate action to distribute optional dividends
             } else if (voteType == ActionType.CHANGE_DECISION_PARAMETERS) {
                 DecisionParameters storage dP = decisionParametersData[id];
                 doSetDecisionParameters(id, decisionParametersVoteType[id], dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
@@ -790,7 +831,7 @@ contract Share is ERC20, IShare {
 
 
     function vote(uint256 id, VoteChoice decision) external override {
-        VoteParameters storage vP = proposals[id];
+        VoteParameters storage vP = getProposal(id);
         if ((vP.result == VoteResult.PENDING) && (getVotingStage(vP) == VotingStage.VOTING_IN_PROGRESS) && (balanceOf(msg.sender) > 0)) { //vP.result could be e.g. WITHDRAWN while the voting stage is still in progress
             mapping(address => uint256) storage voteIndex = vP.voteIndex;
             Vote[] storage votes = vP.votes;
@@ -829,7 +870,7 @@ contract Share is ERC20, IShare {
     }
 
     function withdrawVote(uint256 id) internal returns (bool) {
-        VoteParameters storage vP = proposals[id];
+        VoteParameters storage vP = getProposal(id);
         if (vP.result == VoteResult.PENDING) { //can only withdraw if the result is still pending
             VotingStage votingStage = getVotingStage(vP);
             VoteResult result = (votingStage == VotingStage.EXECUTION_HAS_ENDED)
@@ -844,10 +885,10 @@ contract Share is ERC20, IShare {
     }
 
     function resolveVote(uint256 id, uint256 pageSize) internal returns (bool, uint256) {
-        VoteParameters storage vP = proposals[id];
+        VoteParameters storage vP = getProposal(id);
         uint256 remainingVotes = 0;
         VoteResult result = vP.result;
-        if (result == VoteResult.PARTIAL) {
+        if (result == VoteResult.PARTIAL_VOTE_COUNT) {
             (remainingVotes, result) = countAndVerifyVotes(vP, pageSize);
 
             if (remainingVotes == 0) {
@@ -894,7 +935,7 @@ contract Share is ERC20, IShare {
             DecisionParameters storage dP = vP.decisionParameters;
             return (remainingVotes, verifyVotes(dP, vP.inFavor, vP.against, vP.abstain)); //either REJECTED or APPROVED
         } else {
-            return (remainingVotes, VoteResult.PARTIAL);
+            return (remainingVotes, VoteResult.PARTIAL_VOTE_COUNT);
         }
     }
     
