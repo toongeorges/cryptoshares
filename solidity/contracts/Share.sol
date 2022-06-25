@@ -569,13 +569,13 @@ contract Share is ERC20, IShare {
         return initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
-    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
+    function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         require(getTreasuryShareCount() >= numberOfShares);
 
         return initiateCorporateAction(ActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
-    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
+    function buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         verifyAvailable(currency, numberOfShares*price);
 
         return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);

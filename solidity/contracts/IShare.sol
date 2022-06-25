@@ -145,8 +145,8 @@ interface IShare {
 
     function issueShares(uint256 numberOfShares) external returns (uint256);
     function destroyShares(uint256 numberOfShares) external returns (uint256);
-    function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
     function swap(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
     function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
