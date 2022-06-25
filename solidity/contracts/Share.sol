@@ -581,6 +581,12 @@ contract Share is ERC20, IShare {
         return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
+    function swap(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256) {
+        verifyAvailable(offer, offerRatio*amountOfSwaps);
+
+        return initiateCorporateAction(ActionType.SWAP, amountOfSwaps, exchangeAddress, offer, offerRatio, request, requestRatio);
+    }
+
     function cancelOrder(address exchangeAddress, uint256 orderId) external virtual override returns (uint256) {
         return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
     }
@@ -652,14 +658,19 @@ contract Share is ERC20, IShare {
                 } else if (decisionType < ActionType.CANCEL_ORDER) {
                     if (decisionType == ActionType.RAISE_FUNDS) {
                         increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
-                        registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
+                        registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check
                         IExchange exchange = IExchange(exchangeAddress);
                         exchange.ask(address(this), numberOfShares, currency, amount, optionalAmount);
-                    } else { //decisionType == ActionType.BUY_BACK
+                    } else if (decisionType == ActionType.BUY_BACK) {
                         IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
-                        registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check (for code reuse to minimize the contract size)
+                        registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
                         IExchange exchange = IExchange(exchangeAddress);
                         exchange.bid(address(this), numberOfShares, currency, amount, optionalAmount);
+                    } else { //decisionType == ActionType.SWAP
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, amount*numberOfShares); //only send to safe exchanges, the total price is locked up
+                        registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
+                        IExchange exchange = IExchange(exchangeAddress);
+                        exchange.swap(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                     }
                 } else {
                     if (decisionType == ActionType.CANCEL_ORDER) {

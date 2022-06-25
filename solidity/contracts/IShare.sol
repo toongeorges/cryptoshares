@@ -3,7 +3,7 @@
 pragma solidity ^0.8.9;
 
 enum ActionType {
-    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, CANCEL_ORDER, WITHDRAW_FUNDS, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
+    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, SWAP, CANCEL_ORDER, WITHDRAW_FUNDS, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
 }
 
 enum VoteChoice {
@@ -62,6 +62,14 @@ interface IShare {
       amount: the amount of ERC20 tokens for 1 share
       optionalCurrency: not applicable
       optionalAmount: the maximum amount of orders executed on the exchange, 0 if no maximum.
+
+      for SWAP:
+      numberOfShares: the amount of swaps
+      exchange: the exchange on which the swap order will be placed
+      currency: the ERC20 token A that is offered for a swap
+      amount: the amount of the ERC20 token A that is offered for a swap
+      optionalCurrency: the ERC20 token B that is requested for a swap
+      optionalAmount: the minimum amount of the ERC20 token B that is requested for a swap
 
       for CANCEL_ORDER:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
@@ -139,6 +147,7 @@ interface IShare {
     function destroyShares(uint256 numberOfShares) external returns (uint256);
     function raiseFunds(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
     function buyBack(uint256 numberOfShares, address exchangeAddress, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function swap(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
     function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
 
