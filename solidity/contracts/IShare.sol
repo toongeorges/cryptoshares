@@ -30,6 +30,8 @@ error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
 error CannotVote();
+error CannotExecuteAtOnce();
+error CannotFinish();
 
 interface IShare {
     //external proposals
@@ -118,7 +120,7 @@ interface IShare {
     function getExchangePackSize(address tokenAddress) external view returns (uint256);
     function packExchanges(address tokenAddress, uint256 amountToPack) external;
     function getShareholderCount() external view returns (uint256);
-    function registerShareholder(address shareholder) external returns (uint256);
+    function getShareholderNumber(address shareholder) external returns (uint256);
     function getShareholderPackSize() external view returns (uint256);
     function packShareholders(uint256 amountToPack) external;
 
@@ -154,6 +156,8 @@ interface IShare {
     function startReverseSplit(uint256 reverseSplitToOne, address currency, uint256 amount) external returns (uint256);
     function startDistributeDividend(address currency, uint256 amount) external returns (uint256);
     function startDistributeOptionalDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external returns (uint256);
+    function finish() external;
+    function finish(uint256 pageSize) external returns (uint256);
 
     function resolveVote() external;
     function resolveVote(uint256 pageSize) external returns (uint256);

@@ -60,6 +60,9 @@ struct VoteParameters {
     uint256 against;
     uint256 abstain;
     uint256 noVote;
+
+    mapping(address => uint256) processedShares;
+    uint256 processedShareholders;
 }
 
 struct CorporateActionData { //see the RequestCorporateAction and CorporateAction event in the IShare interface for the meaning of these fields
@@ -144,25 +147,41 @@ contract Share is ERC20, IShare {
 
 
     function transfer(address to, uint256 amount) public virtual override returns (bool) {
-        preventDoubleVoting(msg.sender, to, amount);
+        registerTransfer(msg.sender, to, amount);
 
         return super.transfer(to, amount);
     }
 
     function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
-        preventDoubleVoting(from, to, amount);
+        registerTransfer(from, to, amount);
 
         return super.transferFrom(from, to, amount);
     }
 
-    function preventDoubleVoting(address from, address to, uint256 amount) internal {
-        if (pendingRequestId != 0) { //if there is a request pending
-            mapping(address => uint256) storage spentVotes = proposals[pendingRequestId].spentVotes;
-            uint256 totalSpent = spentVotes[from];
-            if (totalSpent > 0) {
-                uint256 transferredSpentVotes = (totalSpent > amount) ? amount : totalSpent;
-                spentVotes[to] += transferredSpentVotes;
-                spentVotes[from] = totalSpent - transferredSpentVotes;
+    function registerTransfer(address from, address to, uint256 amount) internal {
+        if (amount > 0) { //the ERC20 base class seems not to care if amount == 0, though no registration should happen then
+            registerShareholder(to);
+
+            uint256 id = pendingRequestId;
+            if (id != 0) { //if there is a request pending
+                VoteParameters storage vP = getProposal(id);
+                if (vP.result == VoteResult.PARTIAL_EXECUTION) { //we are past voting
+                    mapping(address => uint256) storage processed = vP.processedShares;
+                    uint256 totalProcessed = processed[from];
+                    if (totalProcessed > 0) {
+                        uint256 transferredProcessed = (totalProcessed > amount) ? amount : totalProcessed;
+                        processed[to] += transferredProcessed;
+                        processed[from] = totalProcessed - transferredProcessed;
+                    }
+                } else {
+                    mapping(address => uint256) storage spentVotes = vP.spentVotes;
+                    uint256 totalSpent = spentVotes[from];
+                    if (totalSpent > 0) {
+                        uint256 transferredSpentVotes = (totalSpent > amount) ? amount : totalSpent;
+                        spentVotes[to] += transferredSpentVotes;
+                        spentVotes[from] = totalSpent - transferredSpentVotes;
+                    }
+                }
             }
         }
     }
@@ -286,22 +305,22 @@ contract Share is ERC20, IShare {
         return shareholdersLength - 1; //the first address is taken by this contract, which is not a shareholder
     }
 
-    function registerShareholder(address shareholder) external virtual override returns (uint256) {
+    function getShareholderNumber(address shareholder) external view virtual override returns (uint256) {
+        return shareholderIndex[shareholder];
+    }
+
+    function registerShareholder(address shareholder) internal {
         uint256 index = shareholderIndex[shareholder];
         if (index == 0) { //the shareholder has not been registered yet (the address at index 0 is this contract)
-            if (balanceOf(shareholder) > 0) { //only register if the address is an actual shareholder
-                index = shareholdersLength;
-                shareholderIndex[shareholder] = index;
-                if (index < shareholders.length) {
-                    shareholders[index] = shareholder;
-                } else {
-                    shareholders.push(shareholder);
-                }
-                shareholdersLength++;
-                return index;
+            index = shareholdersLength;
+            shareholderIndex[shareholder] = index;
+            if (index < shareholders.length) {
+                shareholders[index] = shareholder;
+            } else {
+                shareholders.push(shareholder);
             }
+            shareholdersLength++;
         }
-        return index;
     }
 
     function getShareholderPackSize() external view virtual override returns (uint256) {
@@ -312,18 +331,19 @@ contract Share is ERC20, IShare {
         require(amountToPack > 0);
 
         uint256 start = unpackedShareholderIndex;
+
+        uint256 packedIndex;
+        if (start == 0) { //start a new packing
+            start = 1; //keep address(this) as the first entry in the shareholders array (to simplify later calculations)
+            packedIndex = 1;
+        } else {
+            packedIndex = packedShareholdersLength;
+        }
+
         uint256 end = start + amountToPack;
         uint256 maxEnd = shareholdersLength;
         if (end > maxEnd) {
             end = maxEnd;
-        }
-
-        uint256 packedIndex;
-        if (start == 0) { //start a new packing
-            start = 1;
-            packedIndex = 1;
-        } else {
-            packedIndex = packedShareholdersLength;
         }
 
         for (uint256 i = start; i < end; i++) {
@@ -622,6 +642,68 @@ contract Share is ERC20, IShare {
         return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
     }
 
+    function finish() external virtual override {
+        finish(getShareholderCount());
+    }
+
+    function finish(uint256 pageSize) public virtual override returns (uint256) {
+        uint256 id = pendingRequestId;
+        if (id != 0) {
+            VoteParameters storage vP = getProposal(id);
+            if (vP.result == VoteResult.PARTIAL_EXECUTION) {
+                ActionType decisionType = ActionType(vP.voteType);
+                if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
+                    uint256 start = vP.processedShareholders;
+                    if (start == 0) { //the first entry in shareholders is address(this), which should not receive a dividend
+                        start = 1;
+                    }
+
+                    uint256 end = start + pageSize;
+                    uint256 maxEnd = shareholdersLength;
+                    if (end > maxEnd) {
+                        end = maxEnd;
+                    }
+
+                    CorporateActionData storage cA = corporateActionsData[id];
+                    address currencyAddress = cA.currency;
+                    IERC20 erc20 = IERC20(currencyAddress);
+                    uint256 amountPerShare = cA.amount;
+
+                    mapping(address => uint256) storage processedShares = vP.processedShares;
+                    for (uint256 i = start; i < end; i++) {
+                        address shareholder = shareholders[i];
+                        uint256 totalShares = balanceOf(shareholder);
+                        uint256 unprocessedShares = totalShares - processedShares[shareholder];
+                        if (unprocessedShares > 0) {
+                            processedShares[shareholder] = totalShares;
+                            safeTransfer(erc20, shareholder, unprocessedShares*amountPerShare);
+                        }
+                    }
+
+                    uint shareholdersLeft = maxEnd - end;
+
+                    if (shareholdersLeft == 0) {
+                        vP.result = VoteResult.APPROVED;
+
+                        emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, address(0), currencyAddress, amountPerShare, address(0), 0);
+
+                        pendingRequestId = 0;
+                    }
+
+                    return shareholdersLeft;
+                } else if (decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
+                    return 0;
+                } else { //(decisionType == ActionType.REVERSE_SPLIT)
+                    return 0;
+                }
+            } else {
+                revert CannotFinish();
+            }
+        } else {
+            revert NoRequestPending();
+        }
+    }
+
 
 
     function initiateCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal isOwner verifyNoRequestPending returns (uint256) {
@@ -648,39 +730,41 @@ contract Share is ERC20, IShare {
  
     function doCorporateAction(uint256 id, VoteResult voteResult, ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
         if (isApproved(voteResult)) {
-            if (decisionType < ActionType.REVERSE_SPLIT) { //Solidity does not have a switch statement (except in assembly code)
-                if (decisionType < ActionType.RAISE_FUNDS) {
-                    if (decisionType == ActionType.ISSUE_SHARES) {
-                        _mint(address(this), numberOfShares);
-                    } else { //decisionType == ActionType.DESTROY_SHARES
-                        _burn(address(this), numberOfShares);
-                    }
-                } else if (decisionType < ActionType.CANCEL_ORDER) {
-                    if (decisionType == ActionType.RAISE_FUNDS) {
-                        increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
-                        registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check
-                        IExchange exchange = IExchange(exchangeAddress);
-                        exchange.ask(address(this), numberOfShares, currency, amount, optionalAmount);
-                    } else if (decisionType == ActionType.BUY_BACK) {
-                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
-                        registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
-                        IExchange exchange = IExchange(exchangeAddress);
-                        exchange.bid(address(this), numberOfShares, currency, amount, optionalAmount);
-                    } else { //decisionType == ActionType.SWAP
-                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, amount*numberOfShares); //only send to safe exchanges, the total price is locked up
-                        registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
-                        IExchange exchange = IExchange(exchangeAddress);
-                        exchange.swap(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
-                    }
-                } else {
-                    if (decisionType == ActionType.CANCEL_ORDER) {
-                        IExchange exchange = IExchange(exchangeAddress);
-                        exchange.cancel(amount); //the amount field is used to store the order id since it is of the same type
-                    } else { //decisionType == ActionType.WITHDRAW_FUNDS
-                        safeTransfer(IERC20(currency), exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
-                    }
+            if (decisionType < ActionType.RAISE_FUNDS) {
+                if (decisionType == ActionType.ISSUE_SHARES) {
+                    _mint(address(this), numberOfShares);
+                } else { //decisionType == ActionType.DESTROY_SHARES
+                    _burn(address(this), numberOfShares);
                 }
-            } else if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
+            } else if (decisionType < ActionType.CANCEL_ORDER) {
+                if (decisionType == ActionType.RAISE_FUNDS) {
+                    increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
+                    registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check
+                    IExchange exchange = IExchange(exchangeAddress);
+                    exchange.ask(address(this), numberOfShares, currency, amount, optionalAmount);
+                } else if (decisionType == ActionType.BUY_BACK) {
+                    IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                    registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
+                    IExchange exchange = IExchange(exchangeAddress);
+                    exchange.bid(address(this), numberOfShares, currency, amount, optionalAmount);
+                } else { //decisionType == ActionType.SWAP
+                    IERC20(currency).safeIncreaseAllowance(exchangeAddress, amount*numberOfShares); //only send to safe exchanges, the total price is locked up
+                    registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
+                    IExchange exchange = IExchange(exchangeAddress);
+                    exchange.swap(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                }
+            } else {
+                if (decisionType == ActionType.CANCEL_ORDER) {
+                    IExchange exchange = IExchange(exchangeAddress);
+                    exchange.cancel(amount); //the amount field is used to store the order id since it is of the same type
+                } else if (decisionType == ActionType.WITHDRAW_FUNDS) {
+                    safeTransfer(IERC20(currency), exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+                } else { //decisionType == ActionType.REVERSE_SPLIT, ActionType.DISTRIBUTE_DIVIDEND or ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND which cannot be executed in one go
+                    revert CannotExecuteAtOnce();
+                }
+            }
+//            if (decisionType < ActionType.REVERSE_SPLIT) { //Solidity does not have a switch statement (except in assembly code)
+//            } else if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
             /*
                 if (optionalCurrency == address(0)) {
                     IERC20 erc20 = IERC20(currency);
@@ -690,7 +774,7 @@ contract Share is ERC20, IShare {
                     }
                 } //else a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action will be triggered in the resolveCorporateAction() method
                 */
-            } else if (decisionType == ActionType.REVERSE_SPLIT) {
+//            } else if (decisionType == ActionType.REVERSE_SPLIT) {
                 /*
                 doReverseSplit(address(this), optionalAmount);
 
@@ -712,7 +796,7 @@ contract Share is ERC20, IShare {
                     doReverseSplit(shareholder, optionalAmount);
                 }
                 */
-            } else { //decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND
+//            } else { //decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND
                 //work around there being no memory mapping in Solidity
                 /*
                 IERC20 optionalERC20 = IERC20(optionalCurrency);
@@ -737,7 +821,7 @@ contract Share is ERC20, IShare {
                     }
                 }
                 */
-            }
+//            }
         }
 
         emit CorporateAction(id, voteResult, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
@@ -964,26 +1048,24 @@ contract Share is ERC20, IShare {
             end = maxEnd;
         }
 
+        mapping(address => uint256) storage spentVotes = voteParameters.spentVotes;
         for (uint256 i = start; i < end; i++) {
             Vote storage v = votes[i];
             address voter = v.voter;
             uint256 totalVotingPower = balanceOf(voter);
-            if (totalVotingPower > 0) { //do not consider votes of shareholders who sold their shares
-                mapping(address => uint256) storage spentVotes = voteParameters.spentVotes;
-                uint256 votingPower = totalVotingPower - spentVotes[voter]; //prevent "double spending" of votes
-                if (votingPower > 0) { //do not consider votes of shareholders who bought shares from others who already voted
-                    VoteChoice choice = v.choice;
-                    if (choice == VoteChoice.IN_FAVOR) {
-                        inFavor += votingPower;
-                    } else if (choice == VoteChoice.AGAINST) {
-                        against += votingPower;
-                    } else if (choice == VoteChoice.ABSTAIN) {
-                        abstain += votingPower;
-                    } else { //no votes do not count towards the quorum
-                        noVote += votingPower;
-                    }
-                    spentVotes[voter] = totalVotingPower;
+            uint256 votingPower = totalVotingPower - spentVotes[voter]; //prevent "double spending" of votes
+            if (votingPower > 0) { //do not consider votes of shareholders who sold their shares or who bought shares from others who already voted
+                VoteChoice choice = v.choice;
+                if (choice == VoteChoice.IN_FAVOR) {
+                    inFavor += votingPower;
+                } else if (choice == VoteChoice.AGAINST) {
+                    against += votingPower;
+                } else if (choice == VoteChoice.ABSTAIN) {
+                    abstain += votingPower;
+                } else { //no votes do not count towards the quorum
+                    noVote += votingPower;
                 }
+                spentVotes[voter] = totalVotingPower;
             }
         }
 
