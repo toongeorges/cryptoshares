@@ -147,41 +147,106 @@ contract Share is ERC20, IShare {
 
 
     function transfer(address to, uint256 amount) public virtual override returns (bool) {
+        bool success = super.transfer(to, amount); //has to happen before the registerTransfer method, because shares of the receiver may be burnt in case a reverse split if going on
+
         registerTransfer(msg.sender, to, amount);
 
-        return super.transfer(to, amount);
+        return success;
     }
 
     function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
+        bool success = super.transferFrom(from, to, amount); //has to happen before the registerTransfer method, because shares of the receiver may be burnt in case a reverse split if going on
+
         registerTransfer(from, to, amount);
 
-        return super.transferFrom(from, to, amount);
+        return success;
     }
 
-    function registerTransfer(address from, address to, uint256 amount) internal {
-        if (amount > 0) { //the ERC20 base class seems not to care if amount == 0, though no registration should happen then
+    function registerTransfer(address from, address to, uint256 transferAmount) internal {
+        if (transferAmount > 0) { //the ERC20 base class seems not to care if amount == 0, though no registration should happen then
             registerShareholder(to);
 
             uint256 id = pendingRequestId;
             if (id != 0) { //if there is a request pending
                 VoteParameters storage vP = getProposal(id);
-                if (vP.result == VoteResult.PARTIAL_EXECUTION) { //we are past voting
-                    mapping(address => uint256) storage processed = vP.processedShares;
-                    uint256 totalProcessed = processed[from];
-                    if (totalProcessed > 0) {
-                        uint256 transferredProcessed = (totalProcessed > amount) ? amount : totalProcessed;
-                        processed[to] += transferredProcessed;
-                        processed[from] = totalProcessed - transferredProcessed;
-                    }
-                } else {
-                    mapping(address => uint256) storage spentVotes = vP.spentVotes;
-                    uint256 totalSpent = spentVotes[from];
-                    if (totalSpent > 0) {
-                        uint256 transferredSpentVotes = (totalSpent > amount) ? amount : totalSpent;
-                        spentVotes[to] += transferredSpentVotes;
-                        spentVotes[from] = totalSpent - transferredSpentVotes;
-                    }
+                VoteResult result = vP.result;
+                if (result == VoteResult.PARTIAL_VOTE_COUNT) {
+                    updateSingleVote(from, to, transferAmount, vP);
+                } else if (result == VoteResult.PARTIAL_EXECUTION) {
+                    singlePartialExecution(from, to, transferAmount, vP, id);
                 }
+            }
+        }
+    }
+
+    function updateSingleVote(address from, address to, uint256 transferAmount, VoteParameters storage vP) private {
+        mapping(address => uint256) storage spentVotes = vP.spentVotes;
+        uint256 senderSpent = spentVotes[from];
+        uint256 transferredSpentVotes = (senderSpent > transferAmount) ? transferAmount : senderSpent;
+        if (transferredSpentVotes > 0) {
+            spentVotes[to] += transferredSpentVotes;
+            spentVotes[from] = senderSpent - transferredSpentVotes;
+        }
+        uint256 voteIndex = vP.voteIndex[to];
+        if ((voteIndex > 0) && (voteIndex < vP.countedVotes)) { //if the votes of the receiver have already been counted
+            uint256 transferredUnspentVotes = transferAmount - transferredSpentVotes;
+            if (transferredUnspentVotes > 0) { 
+                VoteChoice choice = vP.votes[voteIndex].choice;
+                if (choice == VoteChoice.IN_FAVOR) {
+                    vP.inFavor += transferredUnspentVotes;
+                } else if (choice == VoteChoice.AGAINST) {
+                    vP.against += transferredUnspentVotes;
+                } else if (choice == VoteChoice.ABSTAIN) {
+                    vP.abstain += transferredUnspentVotes;
+                } else { //no votes do not count towards the quorum
+                    vP.noVote += transferredUnspentVotes;
+                }
+                spentVotes[to] += transferredUnspentVotes;
+            }
+        }
+    }
+
+    function singlePartialExecution(address from, address to, uint256 transferAmount, VoteParameters storage vP, uint256 id) private {
+        mapping(address => uint256) storage processed = vP.processedShares;
+        uint256 totalProcessed = processed[from];
+        uint256 transferredProcessed = (totalProcessed > transferAmount) ? transferAmount : totalProcessed;
+        if (totalProcessed > 0) {
+            processed[to] += transferredProcessed;
+            processed[from] = totalProcessed - transferredProcessed;
+        }
+        uint256 index = shareholderIndex[to];
+        if (index < vP.processedShareholders) { //if the shareholder has already been processed
+            uint256 transferredUnprocessed = transferAmount - transferredProcessed;
+            if (transferredUnprocessed > 0) {
+                doSinglePartialExecution(to, transferredUnprocessed, vP, id, processed);
+            }
+        }
+    }
+
+    function doSinglePartialExecution(address to, uint256 transferredUnprocessed, VoteParameters storage vP, uint256 id, mapping(address => uint256) storage processed) private {
+        CorporateActionData storage cA = corporateActionsData[id];
+        IERC20 erc20 = IERC20(cA.currency);
+        uint256 amountPerShare = cA.amount;
+        uint256 optionalAmount = cA.optionalAmount; //or reverse split ratio in the case of a reverse split
+
+        ActionType decisionType = ActionType(vP.voteType);
+        if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
+            processed[to] += transferredUnprocessed;
+
+            safeTransfer(erc20, to, transferredUnprocessed*amountPerShare);
+        } else if (decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
+        } else { //(decisionType == ActionType.REVERSE_SPLIT)
+            uint256 remainingShares = transferredUnprocessed/optionalAmount;
+            processed[to] += remainingShares;
+
+            //shares have been transferred to the "to" address before the _burn method is called
+            //reduce transferredUnprocessed from transferredUnprocessed -> transferredUnprocessed/optionalAmount == transferredUnprocessed - (transferredUnprocessed - transferredUnprocessed/optionalAmount)
+            _burn(to, transferredUnprocessed - remainingShares);
+
+            //pay out fractional shares
+            uint256 fraction = transferredUnprocessed%optionalAmount;
+            if (fraction > 0) {
+                safeTransfer(erc20, to, fraction*amountPerShare);
             }
         }
     }
@@ -712,6 +777,8 @@ contract Share is ERC20, IShare {
                     }
                 }
 
+                vP.processedShareholders = end;
+
                 uint shareholdersLeft = maxEnd - end;
 
                 if (shareholdersLeft == 0) {
@@ -1065,6 +1132,8 @@ contract Share is ERC20, IShare {
                 spentVotes[voter] = totalVotingPower;
             }
         }
+
+        voteParameters.countedVotes = end;
 
         voteParameters.inFavor = inFavor;
         voteParameters.against = against;
