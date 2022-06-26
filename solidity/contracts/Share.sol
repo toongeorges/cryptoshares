@@ -961,7 +961,7 @@ contract Share is ERC20, IShare {
                 uint256 optionalAmount = cA.optionalAmount;
 
                 //special cases, these need to be executed partially, because we have to iterate over all shareholders and this may not be possible in a single transaction
-                if (isApproved(voteResult) && (voteType >= ActionType.REVERSE_SPLIT) && (voteType <= ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND)) {
+                if ((voteType >= ActionType.REVERSE_SPLIT) && isApproved(voteResult)) { // && (voteType <= ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) is already implied
                     if ((voteType == ActionType.DISTRIBUTE_DIVIDEND) && (optionalCurrency != address(0))) { //we need to trigger ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, which requires another vote to either approve or reject the optional dividend
                         pendingRequestId = 0; //otherwise we cannot start the optional dividend corporate action
 
@@ -1064,6 +1064,10 @@ contract Share is ERC20, IShare {
                     result = VoteResult.APPROVED;
                 } else if (votingStage == VotingStage.VOTING_IN_PROGRESS) { //do nothing, wait for voting to end
                     return (false, 0);
+                } else if (ActionType(vP.voteType) == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
+                    //this was approved for ActionType.DISTRIBUTE_DIVIDEND, nothing to approve anymore,
+                    //a vote only serves to see which option the shareholder prefers
+                    result = VoteResult.APPROVED;
                 } else { //votingStage == VotingStage.VOTING_HAS_ENDED
                     (remainingVotes, result) = countAndVerifyVotes(vP, pageSize);
                 }
