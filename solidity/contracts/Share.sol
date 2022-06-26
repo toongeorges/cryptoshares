@@ -652,24 +652,33 @@ contract Share is ERC20, IShare {
             VoteParameters storage vP = getProposal(id);
             if (vP.result == VoteResult.PARTIAL_EXECUTION) {
                 ActionType decisionType = ActionType(vP.voteType);
+
+                CorporateActionData storage cA = corporateActionsData[id];
+                address currencyAddress = cA.currency;
+                IERC20 erc20 = IERC20(currencyAddress);
+                uint256 amountPerShare = cA.amount;
+                uint256 optionalAmount = cA.optionalAmount; //or reverse split ratio in the case of a reverse split
+
+                uint256 start = vP.processedShareholders;
+                if (start == 0) {
+                    start = 1; //the first entry in shareholders is address(this), which should not receive a dividend
+
+                    if (decisionType == ActionType.REVERSE_SPLIT) { //it should however still undergo a reverse split
+                        uint256 stake = balanceOf(address(this));
+                        //reduce the treasury shares from stake -> stake/reverseSplitRatio == stake - (stake - stake/reverseSplitRatio)
+                        _burn(address(this), stake - (stake/optionalAmount));
+                    }
+                }
+
+                uint256 end = start + pageSize;
+                uint256 maxEnd = shareholdersLength;
+                if (end > maxEnd) {
+                    end = maxEnd;
+                }
+
+                mapping(address => uint256) storage processedShares = vP.processedShares;
+
                 if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
-                    uint256 start = vP.processedShareholders;
-                    if (start == 0) { //the first entry in shareholders is address(this), which should not receive a dividend
-                        start = 1;
-                    }
-
-                    uint256 end = start + pageSize;
-                    uint256 maxEnd = shareholdersLength;
-                    if (end > maxEnd) {
-                        end = maxEnd;
-                    }
-
-                    CorporateActionData storage cA = corporateActionsData[id];
-                    address currencyAddress = cA.currency;
-                    IERC20 erc20 = IERC20(currencyAddress);
-                    uint256 amountPerShare = cA.amount;
-
-                    mapping(address => uint256) storage processedShares = vP.processedShares;
                     for (uint256 i = start; i < end; i++) {
                         address shareholder = shareholders[i];
                         uint256 totalShares = balanceOf(shareholder);
@@ -679,23 +688,41 @@ contract Share is ERC20, IShare {
                             safeTransfer(erc20, shareholder, unprocessedShares*amountPerShare);
                         }
                     }
-
-                    uint shareholdersLeft = maxEnd - end;
-
-                    if (shareholdersLeft == 0) {
-                        vP.result = VoteResult.APPROVED;
-
-                        emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, address(0), currencyAddress, amountPerShare, address(0), 0);
-
-                        pendingRequestId = 0;
-                    }
-
-                    return shareholdersLeft;
                 } else if (decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
                     return 0;
                 } else { //(decisionType == ActionType.REVERSE_SPLIT)
-                    return 0;
+                    for (uint256 i = start; i < end; i++) {
+                        address shareholder = shareholders[i];
+                        uint256 totalShares = balanceOf(shareholder);
+                        uint256 processed = processedShares[shareholder];
+                        uint256 unprocessedShares = totalShares - processed;
+                        if (unprocessedShares > 0) {
+                            uint256 remainingShares = unprocessedShares/optionalAmount;
+                            processedShares[shareholder] = processed + remainingShares;
+
+                            //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
+                            _burn(shareholder, unprocessedShares - remainingShares);
+
+                            //pay out fractional shares
+                            uint256 fraction = unprocessedShares%optionalAmount;
+                            if (fraction > 0) {
+                                safeTransfer(erc20, shareholder, fraction*amountPerShare);
+                            }
+                        }
+                    }
                 }
+
+                uint shareholdersLeft = maxEnd - end;
+
+                if (shareholdersLeft == 0) {
+                    vP.result = VoteResult.APPROVED;
+
+                    emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, address(0), currencyAddress, amountPerShare, address(0), optionalAmount);
+
+                    pendingRequestId = 0;
+                }
+
+                return shareholdersLeft;
             } else {
                 revert CannotFinish();
             }
@@ -765,37 +792,7 @@ contract Share is ERC20, IShare {
             }
 //            if (decisionType < ActionType.REVERSE_SPLIT) { //Solidity does not have a switch statement (except in assembly code)
 //            } else if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
-            /*
-                if (optionalCurrency == address(0)) {
-                    IERC20 erc20 = IERC20(currency);
-                    for (uint256 i = 0; i < shareholders.length; i++) {
-                        address shareholder = shareholders[i];
-                        safeTransfer(erc20, shareholder, balanceOf(shareholder)*amount);
-                    }
-                } //else a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action will be triggered in the resolveCorporateAction() method
-                */
 //            } else if (decisionType == ActionType.REVERSE_SPLIT) {
-                /*
-                doReverseSplit(address(this), optionalAmount);
-
-                uint256 availableAmount = getAvailableAmount(currency); //do not execute the getAvailableAmount() method every time again in the loop!
-                IERC20 erc20 = IERC20(currency);
-                for (uint256 i = 0; i < shareholders.length; i++) {
-                    address shareholder = shareholders[i];
-
-                    //pay out fractional shares
-                    uint256 payOut = (balanceOf(shareholder)%optionalAmount)*amount;
-                    if (availableAmount >= payOut) { //availableAmount may be < erc20.balanceOf(address(this)), because we may still have a pending allowance at an exchange!
-                        safeTransfer(erc20, shareholder, payOut);
-                        availableAmount -= payOut;
-                    } else {
-                        revert(); //run out of funds
-                    }
-
-                    //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
-                    doReverseSplit(shareholder, optionalAmount);
-                }
-                */
 //            } else { //decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND
                 //work around there being no memory mapping in Solidity
                 /*
