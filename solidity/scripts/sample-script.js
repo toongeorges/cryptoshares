@@ -14,20 +14,15 @@ async function main() {
   // await hre.run('compile');
 
   // We get the contract to deploy
-  const Scrutineer = await hre.ethers.getContractFactory("Scrutineer");
-  const scrutineer = await Scrutineer.deploy();
-  await scrutineer.deployed();
-  console.log("Scrutineer deployed to:", scrutineer.address);
-
   const Exchange = await hre.ethers.getContractFactory("Exchange");
   const exchange = await Exchange.deploy();
   await exchange.deployed();
   console.log("Exchange deployed to:", exchange.address);
 
-  const LegacyShare = await hre.ethers.getContractFactory("LegacyShare");
-  const legacyShare = await LegacyShare.deploy("Cryptoshare", "CTS", scrutineer.address);
-  await legacyShare.deployed();
-  console.log("LegacyShare deployed to:", legacyShare.address);
+  const Share = await hre.ethers.getContractFactory("Share");
+  const share = await Share.deploy("Cryptoshare", "CTS");
+  await share.deployed();
+  console.log("Share deployed to:", share.address);
 }
 
 // We recommend this pattern to be able to use async/await everywhere
