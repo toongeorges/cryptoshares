@@ -151,7 +151,7 @@ contract Share is ERC20, IShare {
 
         registerTransfer(msg.sender, to, amount);
 
-        return success;
+        return success; //should be always true, the base implementation reverts if something goes wrong, however returning the boolean literal "true" increases the size of the compiled contract
     }
 
     function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
@@ -159,7 +159,7 @@ contract Share is ERC20, IShare {
 
         registerTransfer(from, to, amount);
 
-        return success;
+        return success; //should be always true, the base implementation reverts if something goes wrong, however returning the boolean literal "true" increases the size of the compiled contract
     }
 
     function registerTransfer(address from, address to, uint256 transferAmount) internal {
@@ -182,9 +182,10 @@ contract Share is ERC20, IShare {
     function updateSingleVote(address from, address to, uint256 transferAmount, VoteParameters storage vP) private {
         mapping(address => uint256) storage spentVotes = vP.spentVotes;
         uint256 senderSpent = spentVotes[from];
+        uint256 receiverSpent = spentVotes[to];
         uint256 transferredSpentVotes = (senderSpent > transferAmount) ? transferAmount : senderSpent;
         if (transferredSpentVotes > 0) {
-            spentVotes[to] += transferredSpentVotes;
+            receiverSpent += transferredSpentVotes;
             spentVotes[from] = senderSpent - transferredSpentVotes;
         }
         uint256 voteIndex = vP.voteIndex[to];
@@ -201,9 +202,10 @@ contract Share is ERC20, IShare {
                 } else { //no votes do not count towards the quorum
                     vP.noVote += transferredUnspentVotes;
                 }
-                spentVotes[to] += transferredUnspentVotes;
+                receiverSpent += transferredUnspentVotes;
             }
         }
+        spentVotes[to] = receiverSpent;
     }
 
     function singlePartialExecution(address from, address to, uint256 transferAmount, VoteParameters storage vP, uint256 id) private {
@@ -900,7 +902,7 @@ contract Share is ERC20, IShare {
         require(getAvailableAmount(currency) >= amount);
     }
 
-    function safeTransfer(IERC20 token, address destination, uint256 amount) internal {
+    function safeTransfer(IERC20 token, address destination, uint256 amount) internal { //reduces the size of the compiled smart contract if this is wrapped in a function
         token.safeTransfer(destination, amount);
     }
 
