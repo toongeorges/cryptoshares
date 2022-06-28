@@ -83,10 +83,10 @@ interface IShare {
       for ASK and BID:
       numberOfShares: the maximum amount of orders executed on the exchange, 0 if no maximum.
       exchange: the exchange on which the ask or bid order will be placed
-      currency: the ERC20 token A that is offered for a swap
-      amount: for ASK, the amount of A per swap, for BID, the maximum amount of A per swap
-      optionalCurrency: the ERC20 token B that is requested for a swap
-      optionalAmount: for ASK, the minimum amount of B per swap, for BID, the amount of B per swap
+      currency: the asset that is sold or bought
+      amount: the amount of the asset to be sold or bought
+      optionalCurrency: the currency in which the asset is sold or bought
+      optionalAmount: for ASK, the minimum amount of the currency to receive for selling all assets, for BID, the maximum amount of the currency for buying all assets
 
       for REVERSE_SPLIT:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
@@ -148,8 +148,8 @@ interface IShare {
     function destroyShares(uint256 numberOfShares) external returns (uint256);
     function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
     function buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function ask(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
-    function bid(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
+    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256);
+    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256);
     function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
 

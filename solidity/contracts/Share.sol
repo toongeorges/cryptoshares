@@ -682,16 +682,16 @@ contract Share is ERC20, IShare {
         return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
-    function ask(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256) {
-        verifyAvailable(offer, offerRatio*amountOfSwaps);
+    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256) {
+        verifyAvailable(asset, assetAmount);
 
-        return initiateCorporateAction(ActionType.ASK, amountOfSwaps, exchangeAddress, offer, offerRatio, request, requestRatio);
+        return initiateCorporateAction(ActionType.ASK, maxOrders, exchangeAddress, asset, assetAmount, currency, currencyAmount);
     }
 
-    function bid(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256) {
-        verifyAvailable(offer, offerRatio*amountOfSwaps);
+    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256) {
+        verifyAvailable(currency, currencyAmount);
 
-        return initiateCorporateAction(ActionType.BID, amountOfSwaps, exchangeAddress, offer, offerRatio, request, requestRatio);
+        return initiateCorporateAction(ActionType.BID, maxOrders, exchangeAddress, asset, assetAmount, currency, currencyAmount);
     }
 
 
@@ -888,12 +888,12 @@ contract Share is ERC20, IShare {
                     }
                 } else {
                     if (decisionType == ActionType.ASK) {
-                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, amount); //only send to safe exchanges, the total price is locked up
                         registerExchange(exchangeAddress, currency);
                         exchange.ask(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                     } else  { //decisionType == ActionType.BID
-                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
-                        registerExchange(exchangeAddress, currency);
+                        IERC20(optionalCurrency).safeIncreaseAllowance(exchangeAddress, optionalAmount); //only send to safe exchanges, the total price is locked up
+                        registerExchange(exchangeAddress, optionalCurrency);
                         exchange.bid(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                     }
                 }

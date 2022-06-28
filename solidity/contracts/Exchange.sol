@@ -6,19 +6,33 @@ import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import 'contracts/IExchange.sol';
 
-/*
+enum Type {
+    ASK, BID
+}
+
 enum Status {
     ACTIVE, CANCELLED, EXECUTED
 }
 
 struct Order {
     address owner;
-    uint256 amount;
-    uint256 price;
+    Type orderType;
     Status status;
-    bool split;
+    address offer;
+    uint256 offerRatio;
+    address request;
+    uint256 requestRatio;
+    uint256 remaining;
+    Execution[] executions;
 }
 
+struct Execution {
+    uint256 matchedId;
+    uint256 price;
+    uint256 amount;
+}
+
+/*
 struct OrderList {
     mapping(uint256 => Order) asks;
     mapping(address => uint256[]) asksByUser;
@@ -44,6 +58,8 @@ contract Exchange is IExchange {
     using SafeERC20 for IERC20;
 
     mapping(address => mapping(address => uint256)) lockedUpTokens;
+
+    uint256 orderId;
 
     /*
     address[] public listedTokens; //listed ERC20 tokens
@@ -73,14 +89,14 @@ contract Exchange is IExchange {
     }
 
     //will make up to amountOfSwaps swaps in at most maxOrders orders where each swap sells offerRatio offer tokens and buys >= requestRatio request tokens
-    function ask(address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 maxOrders) external virtual override returns (uint256) {
-        lockUp(msg.sender, offer, offerRatio);
+    function ask(address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external virtual override returns (uint256) {
+        lockUp(msg.sender, asset, assetAmount);
         return 0;
     }
 
     //will make up to amountOfSwaps swaps in at most maxOrders orders where each swap sells <= offerRatio offer tokens and buys requestRatio request tokens
-    function bid(address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 maxOrders) external virtual override returns (uint256) {
-        lockUp(msg.sender, offer, offerRatio);
+    function bid(address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external virtual override returns (uint256) {
+        lockUp(msg.sender, currency, currencyAmount);
         return 0;
     }
 
