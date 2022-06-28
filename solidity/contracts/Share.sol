@@ -5,8 +5,8 @@ pragma solidity ^0.8.9;
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
-import 'contracts/IShare.sol';
 import 'contracts/IExchange.sol';
+import 'contracts/IShare.sol';
 
 enum VotingStage {
     VOTING_IN_PROGRESS, VOTING_HAS_ENDED, EXECUTION_HAS_ENDED
@@ -316,16 +316,14 @@ contract Share is ERC20, IShare {
         if (index == 0) { //the exchange has not been registered yet OR was the first registered exchange
             address[] storage exchanges = info.exchanges;
             if ((exchanges.length == 0) || (exchanges[0] != exchange)) { //the exchange has not been registered yet
-                if (IERC20(tokenAddress).allowance(address(this), exchange) > 0) {
-                    index = info.exchangesLength;
-                    exchangeIndex[exchange] = index;
-                    if (index < exchanges.length) {
-                        exchanges[index] = exchange;
-                    } else {
-                        exchanges.push(exchange);
-                    }
-                    info.exchangesLength++;
+                index = info.exchangesLength;
+                exchangeIndex[exchange] = index;
+                if (index < exchanges.length) {
+                    exchanges[index] = exchange;
+                } else {
+                    exchanges.push(exchange);
                 }
+                info.exchangesLength++;
             }
         }
     }
@@ -660,6 +658,16 @@ contract Share is ERC20, IShare {
         return initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
     }
 
+    function withdrawFunds(address destination, address currency, uint256 amount) external virtual override returns (uint256) {
+        verifyAvailable(currency, amount);
+
+        return initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
+    }
+
+    function cancelOrder(address exchangeAddress, uint256 orderId) external virtual override returns (uint256) {
+        return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
+    }
+
     function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         require(getTreasuryShareCount() >= numberOfShares);
 
@@ -672,20 +680,16 @@ contract Share is ERC20, IShare {
         return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
     }
 
-    function swap(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256) {
+    function ask(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256) {
         verifyAvailable(offer, offerRatio*amountOfSwaps);
 
-        return initiateCorporateAction(ActionType.SWAP, amountOfSwaps, exchangeAddress, offer, offerRatio, request, requestRatio);
+        return initiateCorporateAction(ActionType.ASK, amountOfSwaps, exchangeAddress, offer, offerRatio, request, requestRatio);
     }
 
-    function cancelOrder(address exchangeAddress, uint256 orderId) external virtual override returns (uint256) {
-        return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
-    }
+    function bid(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256) {
+        verifyAvailable(offer, offerRatio*amountOfSwaps);
 
-    function withdrawFunds(address destination, address currency, uint256 amount) external virtual override returns (uint256) {
-        verifyAvailable(currency, amount);
-
-        return initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
+        return initiateCorporateAction(ActionType.BID, amountOfSwaps, exchangeAddress, offer, offerRatio, request, requestRatio);
     }
 
 
@@ -855,37 +859,44 @@ contract Share is ERC20, IShare {
     function doCorporateAction(uint256 id, VoteResult voteResult, ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal {
         if (isApproved(voteResult)) {
             if (decisionType < ActionType.RAISE_FUNDS) {
-                if (decisionType == ActionType.ISSUE_SHARES) {
-                    _mint(address(this), numberOfShares);
-                } else { //decisionType == ActionType.DESTROY_SHARES
-                    _burn(address(this), numberOfShares);
+                if (decisionType < ActionType.WITHDRAW_FUNDS) {
+                    if (decisionType == ActionType.ISSUE_SHARES) {
+                        _mint(address(this), numberOfShares);
+                    } else { //decisionType == ActionType.DESTROY_SHARES
+                        _burn(address(this), numberOfShares);
+                    }
+                } else {
+                    if (decisionType == ActionType.WITHDRAW_FUNDS) {
+                        safeTransfer(IERC20(currency), exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
+                    } else { //decisionType == ActionType.CANCEL_ORDER
+                        IExchange(exchangeAddress).cancel(amount); //the amount field is used to store the order id since it is of the same type
+                    }
                 }
-            } else if (decisionType < ActionType.CANCEL_ORDER) {
-                if (decisionType == ActionType.RAISE_FUNDS) {
-                    increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
-                    registerExchange(exchangeAddress, address(this)); //execute only after the allowance has been increased, because this method implicitly does an allowance check
-                    IExchange exchange = IExchange(exchangeAddress);
-                    exchange.ask(address(this), numberOfShares, currency, amount, optionalAmount);
-                } else if (decisionType == ActionType.BUY_BACK) {
-                    IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
-                    registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
-                    IExchange exchange = IExchange(exchangeAddress);
-                    exchange.bid(address(this), numberOfShares, currency, amount, optionalAmount);
-                } else { //decisionType == ActionType.SWAP
-                    IERC20(currency).safeIncreaseAllowance(exchangeAddress, amount*numberOfShares); //only send to safe exchanges, the total price is locked up
-                    registerExchange(exchangeAddress, currency); //execute only after the allowance has been increased, because this method implicitly does an allowance check
-                    IExchange exchange = IExchange(exchangeAddress);
-                    exchange.swap(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+            } else if (decisionType < ActionType.REVERSE_SPLIT) {
+                IExchange exchange = IExchange(exchangeAddress);
+                if (decisionType < ActionType.ASK) {
+                    if (decisionType == ActionType.RAISE_FUNDS) {
+                        increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
+                        registerExchange(exchangeAddress, address(this));
+                        exchange.ask(address(this), numberOfShares, currency, numberOfShares*amount, optionalAmount);
+                    } else  { //decisionType == ActionType.BUY_BACK
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                        registerExchange(exchangeAddress, currency);
+                        exchange.bid(currency, numberOfShares*amount, address(this), numberOfShares, optionalAmount);
+                    }
+                } else {
+                    if (decisionType == ActionType.ASK) {
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                        registerExchange(exchangeAddress, currency);
+                        exchange.ask(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                    } else  { //decisionType == ActionType.BID
+                        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
+                        registerExchange(exchangeAddress, currency);
+                        exchange.bid(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                    }
                 }
             } else {
-                if (decisionType == ActionType.CANCEL_ORDER) {
-                    IExchange exchange = IExchange(exchangeAddress);
-                    exchange.cancel(amount); //the amount field is used to store the order id since it is of the same type
-                } else if (decisionType == ActionType.WITHDRAW_FUNDS) {
-                    safeTransfer(IERC20(currency), exchangeAddress, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
-                } else { //decisionType == ActionType.REVERSE_SPLIT, ActionType.DISTRIBUTE_DIVIDEND or ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND which cannot be executed in one go
-                    revert CannotExecuteAtOnce();
-                }
+                revert CannotExecuteAtOnce();
             }
         }
 

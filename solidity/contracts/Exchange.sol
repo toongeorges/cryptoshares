@@ -4,7 +4,9 @@ pragma solidity ^0.8.9;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
+import 'contracts/IExchange.sol';
 
+/*
 enum Status {
     ACTIVE, CANCELLED, EXECUTED
 }
@@ -36,9 +38,10 @@ struct OrderBook {
     address[] currencies;
     mapping(address => OrderList) ordersByCurrency;
 }
+*/
 
-
-contract Exchange {
+contract Exchange is IExchange {
+    /*
     address[] public listedTokens; //listed ERC20 tokens
     mapping(address => OrderBook) public orderbook;
 
@@ -51,17 +54,34 @@ contract Exchange {
     event ExecuteAsk(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency);
     event ExecuteBid(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency);
     event Trade(address indexed asset, uint256 amount, address indexed currency, uint256 price);
+    */
 
     receive() external payable { //used to receive wei when msg.data is empty
-        revert(); //as long as Ether is not ERC20 compliant
+        revert DoNotAcceptEtherPayments(); //as long as Ether is not ERC20 compliant
     }
     
     fallback() external payable { //used to receive wei when msg.data is not empty
-        revert(); //as long as Ether is not ERC20 compliant
+        revert DoNotAcceptEtherPayments(); //as long as Ether is not ERC20 compliant
     }
 
+    //will make up to amountOfSwaps swaps in at most maxOrders orders where each swap sells offerRatio offer tokens and buys >= requestRatio request tokens
+    function ask(address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 maxOrders) external virtual override returns (uint256) {
+        return 0;
+    }
+
+    //will make up to amountOfSwaps swaps in at most maxOrders orders where each swap sells <= offerRatio offer tokens and buys requestRatio request tokens
+    function bid(address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 maxOrders) external virtual override returns (uint256) {
+        return 0;
+    }
+
+    function cancel(uint256 orderId) external virtual override {
+
+    }
+
+/*
     function verifyTokenBalance(address owner, address erc20Token) public view returns (uint256) {
         IERC20 token = IERC20(erc20Token);
         return token.allowance(owner, address(this));
     }
+*/
 }

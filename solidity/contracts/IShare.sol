@@ -3,7 +3,7 @@
 pragma solidity ^0.8.9;
 
 enum ActionType {
-    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, RAISE_FUNDS, BUY_BACK, SWAP, CANCEL_ORDER, WITHDRAW_FUNDS, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
+    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, WITHDRAW_FUNDS, CANCEL_ORDER, RAISE_FUNDS, BUY_BACK, ASK, BID, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
 }
 
 enum VoteChoice {
@@ -25,7 +25,6 @@ struct DecisionParameters {
     uint32 majorityDenominator; //the required majority is compared to the number of votes that are in favor divided by the number of votes that are either in favor or against
 }
 
-error DoNotAcceptEtherPayments();
 error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
@@ -56,6 +55,22 @@ interface IShare {
       amount: not applicable
       optionalCurrency: not applicable
       optionalAmount: not applicable
+
+      for WITHDRAW_FUNDS:
+      numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
+      exchange: the account the funds have to be transferred to
+      currency: the currency that needs to be transferred
+      amount: the amount of currency that needs to be transferred
+      optionalCurrency: not applicable
+      optionalAmount: not applicable
+
+      for CANCEL_ORDER:
+      numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
+      exchange: the exchange on which the ask or bid order needs to be canceled
+      currency: not applicable
+      amount: the id of the order that needs to be canceled
+      optionalCurrency: not applicable
+      optionalAmount: not applicable
     
       for RAISE_FUNDS and BUY_BACK:
       numberOfShares: the number of shares to be sold or bought back
@@ -65,21 +80,13 @@ interface IShare {
       optionalCurrency: not applicable
       optionalAmount: the maximum amount of orders executed on the exchange, 0 if no maximum.
 
-      for SWAP:
-      numberOfShares: the amount of swaps
-      exchange: the exchange on which the swap order will be placed
+      for ASK and BID:
+      numberOfShares: the maximum amount of orders executed on the exchange, 0 if no maximum.
+      exchange: the exchange on which the ask or bid order will be placed
       currency: the ERC20 token A that is offered for a swap
-      amount: the amount of the ERC20 token A that is offered for a swap
+      amount: for ASK, the amount of A per swap, for BID, the maximum amount of A per swap
       optionalCurrency: the ERC20 token B that is requested for a swap
-      optionalAmount: the minimum amount of the ERC20 token B that is requested for a swap
-
-      for CANCEL_ORDER:
-      numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
-      exchange: the exchange on which the ask or bid order needs to be canceled
-      currency: not applicable
-      amount: the id of the order that needs to be canceled
-      optionalCurrency: not applicable
-      optionalAmount: not applicable
+      optionalAmount: for ASK, the minimum amount of B per swap, for BID, the amount of B per swap
 
       for REVERSE_SPLIT:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
@@ -97,15 +104,7 @@ interface IShare {
       optionalCurrency: only applicable when an optional dividend is distributed, the optional currency to be distributed
       optionalAmount: only applicable when an optional dividend is distributed, the amount of the optional currency to be distributed
 
-      in case of an optional dividend, first a DISTRIBUTE_DIVIDEND corporate action is taken and if approved, a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action is taken where shareholders can decide to opt for the optional dividend
-
-      for WITHDRAW_FUNDS:
-      numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
-      exchange: the account the funds have to be transferred to
-      currency: the currency that needs to be transferred
-      amount: the amount of currency that needs to be transferred
-      optionalCurrency: not applicable
-      optionalAmount: not applicable
+      in case of an optional dividend, first a DISTRIBUTE_DIVIDEND corporate action is initiated and if approved, a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action is initiated where shareholders can decide to opt for the optional dividend instead of the regular dividend
     */
     event RequestCorporateAction(uint256 indexed id, ActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
     event CorporateAction(uint256 indexed id, VoteResult indexed voteResult, ActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
@@ -149,7 +148,8 @@ interface IShare {
     function destroyShares(uint256 numberOfShares) external returns (uint256);
     function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
     function buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function swap(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
+    function ask(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
+    function bid(address exchangeAddress, address offer, uint256 offerRatio, address request, uint256 requestRatio, uint256 amountOfSwaps) external returns (uint256);
     function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
 
