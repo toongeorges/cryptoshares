@@ -262,23 +262,26 @@ contract Share is ERC20, IShare {
     function getLockedUpAmount(address tokenAddress) public view virtual override returns (uint256) {
         ExchangeInfo storage info = exchangeInfo[tokenAddress];
         address[] storage exchanges = info.exchanges;
-        IERC20 token = IERC20(tokenAddress);
 
         uint256 lockedUpAmount = 0;
         uint256 unpackedIndex = info.unpackedIndex;
         if (unpackedIndex == 0) {
             for (uint256 i = 0; i < info.exchangesLength; i++) {
-                lockedUpAmount += token.allowance(address(this), exchanges[i]);
+                lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
             }
         } else {
             for (uint256 i = 0; i < info.packedLength; i++) {
-                lockedUpAmount += token.allowance(address(this), exchanges[i]);
+                lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
             }
             for (uint256 i = unpackedIndex; i < info.exchangesLength; i++) {
-                lockedUpAmount += token.allowance(address(this), exchanges[i]);
+                lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
             }
         }
         return lockedUpAmount;
+    }
+
+    function getLockedUpAmount(address exchangeAddress, address tokenAddress) internal view returns (uint256) {
+        return IExchange(exchangeAddress).getLockedUpAmount(tokenAddress);
     }
 
     function getAvailableAmount(address tokenAddress) public view virtual override returns (uint256) {
@@ -349,10 +352,9 @@ contract Share is ERC20, IShare {
 
         mapping(address => uint256) storage exchangeIndex = info.exchangeIndex;
         address[] storage exchanges = info.exchanges;
-        IERC20 token = IERC20(tokenAddress);
         for (uint256 i = start; i < end; i++) {
             address exchange = exchanges[i];
-            if (token.allowance(address(this), exchange) > 0) { //only register if the exchange still has locked up tokens
+            if (getLockedUpAmount(exchange, tokenAddress) > 0) { //only register if the exchange still has locked up tokens
                 exchangeIndex[exchange] = packedIndex;
                 exchanges[packedIndex] = exchange;
                 packedIndex++;
