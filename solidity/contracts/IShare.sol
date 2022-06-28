@@ -78,10 +78,10 @@ interface IShare {
       currency: the ERC20 token the share will be traded against
       amount: the amount of ERC20 tokens for 1 share
       optionalCurrency: not applicable
-      optionalAmount: the maximum amount of orders executed on the exchange, 0 if no maximum.
+      optionalAmount: the maximum amount of orders executed on the exchange
 
       for ASK and BID:
-      numberOfShares: the maximum amount of orders executed on the exchange, 0 if no maximum.
+      numberOfShares: the maximum amount of orders executed on the exchange
       exchange: the exchange on which the ask or bid order will be placed
       currency: the asset that is sold or bought
       amount: the amount of the asset to be sold or bought
