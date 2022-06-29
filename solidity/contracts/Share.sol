@@ -126,7 +126,7 @@ contract Share is ERC20, IShare {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
         owner = msg.sender;
         shareholders.push(address(this)); //to make later operations on shareholders less costly
-        shareholdersLength++;
+        shareholdersLength = 1;
         proposals.push(); //make sure that the pendingRequestId for any request > 0
     }
 
@@ -185,24 +185,28 @@ contract Share is ERC20, IShare {
         uint256 receiverSpent = spentVotes[to];
         uint256 transferredSpentVotes = (senderSpent > transferAmount) ? transferAmount : senderSpent;
         if (transferredSpentVotes > 0) {
-            receiverSpent += transferredSpentVotes;
-            spentVotes[from] = senderSpent - transferredSpentVotes;
+            unchecked {
+                receiverSpent += transferredSpentVotes;
+                spentVotes[from] = senderSpent - transferredSpentVotes;
+            }
         }
         uint256 voteIndex = vP.voteIndex[to];
         if ((voteIndex > 0) && (voteIndex < vP.countedVotes)) { //if the votes of the receiver have already been counted
-            uint256 transferredUnspentVotes = transferAmount - transferredSpentVotes;
-            if (transferredUnspentVotes > 0) { 
-                VoteChoice choice = vP.votes[voteIndex].choice;
-                if (choice == VoteChoice.IN_FAVOR) {
-                    vP.inFavor += transferredUnspentVotes;
-                } else if (choice == VoteChoice.AGAINST) {
-                    vP.against += transferredUnspentVotes;
-                } else if (choice == VoteChoice.ABSTAIN) {
-                    vP.abstain += transferredUnspentVotes;
-                } else { //no votes do not count towards the quorum
-                    vP.noVote += transferredUnspentVotes;
+            unchecked {
+                uint256 transferredUnspentVotes = transferAmount - transferredSpentVotes;
+                if (transferredUnspentVotes > 0) { 
+                    VoteChoice choice = vP.votes[voteIndex].choice;
+                    if (choice == VoteChoice.IN_FAVOR) {
+                        vP.inFavor += transferredUnspentVotes;
+                    } else if (choice == VoteChoice.AGAINST) {
+                        vP.against += transferredUnspentVotes;
+                    } else if (choice == VoteChoice.ABSTAIN) {
+                        vP.abstain += transferredUnspentVotes;
+                    } else { //no votes do not count towards the quorum
+                        vP.noVote += transferredUnspentVotes;
+                    }
+                    receiverSpent += transferredUnspentVotes;
                 }
-                receiverSpent += transferredUnspentVotes;
             }
         }
         spentVotes[to] = receiverSpent;
@@ -213,14 +217,18 @@ contract Share is ERC20, IShare {
         uint256 totalProcessed = processed[from];
         uint256 transferredProcessed = (totalProcessed > transferAmount) ? transferAmount : totalProcessed;
         if (totalProcessed > 0) {
-            processed[to] += transferredProcessed;
-            processed[from] = totalProcessed - transferredProcessed;
+            unchecked {
+                processed[to] += transferredProcessed;
+                processed[from] = totalProcessed - transferredProcessed;
+            }
         }
         uint256 index = shareholderIndex[to];
         if (index < vP.processedShareholders) { //if the shareholder has already been processed
-            uint256 transferredUnprocessed = transferAmount - transferredProcessed;
-            if (transferredUnprocessed > 0) {
-                doSinglePartialExecution(to, transferredUnprocessed, vP, id, processed);
+            unchecked {
+                uint256 transferredUnprocessed = transferAmount - transferredProcessed;
+                if (transferredUnprocessed > 0) {
+                    doSinglePartialExecution(to, transferredUnprocessed, vP, id, processed);
+                }
             }
         }
     }
@@ -230,10 +238,12 @@ contract Share is ERC20, IShare {
 
         ActionType decisionType = ActionType(vP.voteType);
         if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
-            processed[to] += transferredUnprocessed;
+            unchecked { processed[to] += transferredUnprocessed; }
 
             safeTransfer(IERC20(cA.currency), to, transferredUnprocessed*cA.amount);
         } else if (decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
+            unchecked { processed[to] += transferredUnprocessed; }
+
             uint256 vIndex = vP.voteIndex[to];
             if ((vIndex > 0) && (vP.votes[vIndex].choice == VoteChoice.IN_FAVOR)) { //the shareholder chose for the optional dividend
                 safeTransfer(IERC20(cA.optionalCurrency), to, transferredUnprocessed*cA.optionalAmount); //distribute the optional dividend
@@ -243,11 +253,13 @@ contract Share is ERC20, IShare {
         } else { //(decisionType == ActionType.REVERSE_SPLIT)
             uint256 reverseSplitRatio = cA.optionalAmount; //or reverse split ratio in the case of a reverse split
             uint256 remainingShares = transferredUnprocessed/reverseSplitRatio;
-            processed[to] += remainingShares;
+            unchecked {
+                processed[to] += remainingShares;
 
-            //shares have been transferred to the "to" address before the _burn method is called
-            //reduce transferredUnprocessed from transferredUnprocessed -> transferredUnprocessed/optionalAmount == transferredUnprocessed - (transferredUnprocessed - transferredUnprocessed/optionalAmount)
-            _burn(to, transferredUnprocessed - remainingShares);
+                //shares have been transferred to the "to" address before the _burn method is called
+                //reduce transferredUnprocessed from transferredUnprocessed -> transferredUnprocessed/optionalAmount == transferredUnprocessed - (transferredUnprocessed - transferredUnprocessed/optionalAmount)
+                _burn(to, transferredUnprocessed - remainingShares);
+            }
 
             //pay out fractional shares
             uint256 fraction = transferredUnprocessed%reverseSplitRatio;
@@ -266,15 +278,18 @@ contract Share is ERC20, IShare {
         uint256 lockedUpAmount = 0;
         uint256 unpackedIndex = info.unpackedIndex;
         if (unpackedIndex == 0) {
-            for (uint256 i = 0; i < info.exchangesLength; i++) {
+            for (uint256 i = 0; i < info.exchangesLength;) {
                 lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
+                unchecked { i++; }
             }
         } else {
-            for (uint256 i = 0; i < info.packedLength; i++) {
+            for (uint256 i = 0; i < info.packedLength;) {
                 lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
+                unchecked { i++; }
             }
-            for (uint256 i = unpackedIndex; i < info.exchangesLength; i++) {
+            for (uint256 i = unpackedIndex; i < info.exchangesLength;) {
                 lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
+                unchecked { i++; }
             }
         }
         return lockedUpAmount;
@@ -309,7 +324,9 @@ contract Share is ERC20, IShare {
 
     function getExchangePackSize(address tokenAddress) external view virtual override returns (uint256) {
         ExchangeInfo storage info = exchangeInfo[tokenAddress];
-        return info.exchangesLength - info.unpackedIndex;
+        unchecked {
+            return info.exchangesLength - info.unpackedIndex;
+        }
     }
 
     function registerExchange(address tokenAddress, address exchange) internal {
@@ -326,7 +343,7 @@ contract Share is ERC20, IShare {
                 } else {
                     exchanges.push(exchange);
                 }
-                info.exchangesLength++;
+                unchecked { info.exchangesLength++; }
             }
         }
     }
@@ -352,15 +369,16 @@ contract Share is ERC20, IShare {
 
         mapping(address => uint256) storage exchangeIndex = info.exchangeIndex;
         address[] storage exchanges = info.exchanges;
-        for (uint256 i = start; i < end; i++) {
+        for (uint256 i = start; i < end;) {
             address exchange = exchanges[i];
             if (getLockedUpAmount(exchange, tokenAddress) > 0) { //only register if the exchange still has locked up tokens
                 exchangeIndex[exchange] = packedIndex;
                 exchanges[packedIndex] = exchange;
-                packedIndex++;
+                unchecked{ packedIndex++; }
             } else {
                 exchangeIndex[exchange] = 0;
             }
+            unchecked { i++; }
         }
         info.packedLength = packedIndex;
 
@@ -373,7 +391,9 @@ contract Share is ERC20, IShare {
     }
 
     function getShareholderCount() public view virtual override returns (uint256) {
-        return shareholdersLength - 1; //the first address is taken by this contract, which is not a shareholder
+        unchecked {
+            return shareholdersLength - 1; //the first address is taken by this contract, which is not a shareholder
+        }
     }
 
     function getShareholderNumber(address shareholder) external view virtual override returns (uint256) {
@@ -390,12 +410,14 @@ contract Share is ERC20, IShare {
             } else {
                 shareholders.push(shareholder);
             }
-            shareholdersLength++;
+            unchecked { shareholdersLength++; }
         }
     }
 
     function getShareholderPackSize() external view virtual override returns (uint256) {
-        return (unpackedShareholderIndex == 0) ? getShareholderCount() : (shareholdersLength - unpackedShareholderIndex);
+        unchecked {
+            return (unpackedShareholderIndex == 0) ? getShareholderCount() : (shareholdersLength - unpackedShareholderIndex);
+        }
     }
 
     function packShareholders(uint256 amountToPack) external virtual override {
@@ -417,15 +439,16 @@ contract Share is ERC20, IShare {
             end = maxEnd;
         }
 
-        for (uint256 i = start; i < end; i++) {
+        for (uint256 i = start; i < end;) {
             address shareholder = shareholders[i];
             if (balanceOf(shareholder) > 0) { //only register if the address is an actual shareholder
                 shareholderIndex[shareholder] = packedIndex;
                 shareholders[packedIndex] = shareholder;
-                packedIndex++;
+                unchecked { packedIndex++; }
             } else {
                 shareholderIndex[shareholder] = 0;
             }
+            unchecked { i++; }
         }
         packedShareholdersLength = packedIndex;
 
@@ -461,7 +484,9 @@ contract Share is ERC20, IShare {
     }
 
     function getNumberOfVotes(uint256 id) public view virtual override returns (uint256) {
-        return (getProposal(id).votes.length - 1); //the vote at index 0 is from address(this) with VoteChoice.NO_VOTE and is ignored
+        unchecked {
+            return (getProposal(id).votes.length - 1); //the vote at index 0 is from address(this) with VoteChoice.NO_VOTE and is ignored
+        }
     }
 
     function getDetailedVoteResult(uint256 id) external view virtual override returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256) {
@@ -759,17 +784,19 @@ contract Share is ERC20, IShare {
 
                 vP.processedShareholders = end;
 
-                uint shareholdersLeft = maxEnd - end;
+                unchecked{
+                    uint shareholdersLeft = maxEnd - end;
 
-                if (shareholdersLeft == 0) {
-                    vP.result = VoteResult.APPROVED;
+                    if (shareholdersLeft == 0) {
+                        vP.result = VoteResult.APPROVED;
 
-                    emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, address(0), currencyAddress, amountPerShare, optionalCurrencyAddress, optionalAmount);
+                        emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, address(0), currencyAddress, amountPerShare, optionalCurrencyAddress, optionalAmount);
 
-                    pendingRequestId = 0;
+                        pendingRequestId = 0;
+                    }
+
+                    return shareholdersLeft;
                 }
-
-                return shareholdersLeft;
             } else {
                 revert CannotFinish();
             }
@@ -783,24 +810,27 @@ contract Share is ERC20, IShare {
         mapping(address => uint256) storage processedShares = vP.processedShares;
 
         if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
-            for (uint256 i = start; i < end; i++) {
+            for (uint256 i = start; i < end;) {
                 address shareholder = shareholders[i];
                 uint256 totalShares = balanceOf(shareholder);
-                uint256 unprocessedShares = totalShares - processedShares[shareholder];
+                uint256 unprocessedShares;
+                unchecked { unprocessedShares = totalShares - processedShares[shareholder]; }
                 if (unprocessedShares > 0) {
                     processedShares[shareholder] = totalShares;
                     safeTransfer(erc20, shareholder, unprocessedShares*amountPerShare);
                 }
+                unchecked { i++; }
             }
         } else if (decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
             IERC20 optionalERC20 = IERC20(optionalCurrencyAddress);
 
             mapping(address => uint256) storage voteIndex = vP.voteIndex;
             Vote[] storage votes = vP.votes;
-            for (uint256 i = start; i < end; i++) {
+            for (uint256 i = start; i < end;) {
                 address shareholder = shareholders[i];
                 uint256 totalShares = balanceOf(shareholder);
-                uint256 unprocessedShares = totalShares - processedShares[shareholder];
+                uint256 unprocessedShares;
+                unchecked { unprocessedShares = totalShares - processedShares[shareholder]; }
                 if (unprocessedShares > 0) {
                     processedShares[shareholder] = totalShares;
                     uint256 vIndex = voteIndex[shareholder];
@@ -810,19 +840,23 @@ contract Share is ERC20, IShare {
                         safeTransfer(erc20, shareholder, unprocessedShares*amountPerShare); //distribute the normal dividend
                     }
                 }
+                unchecked { i++; }
             }
         } else { //(decisionType == ActionType.REVERSE_SPLIT)
-            for (uint256 i = start; i < end; i++) {
+            for (uint256 i = start; i < end;) {
                 address shareholder = shareholders[i];
                 uint256 totalShares = balanceOf(shareholder);
                 uint256 processed = processedShares[shareholder];
-                uint256 unprocessedShares = totalShares - processed;
+                uint256 unprocessedShares;
+                unchecked { unprocessedShares = totalShares - processed; }
                 if (unprocessedShares > 0) {
                     uint256 remainingShares = unprocessedShares/optionalAmount;
-                    processedShares[shareholder] = processed + remainingShares;
+                    unchecked {
+                        processedShares[shareholder] = processed + remainingShares;
 
-                    //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
-                    _burn(shareholder, unprocessedShares - remainingShares);
+                        //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
+                        _burn(shareholder, unprocessedShares - remainingShares);
+                    }
 
                     //pay out fractional shares
                     uint256 fraction = unprocessedShares%optionalAmount;
@@ -830,6 +864,7 @@ contract Share is ERC20, IShare {
                         safeTransfer(erc20, shareholder, fraction*amountPerShare);
                     }
                 }
+                unchecked { i++; }
             }
         }
     }
@@ -1131,23 +1166,26 @@ contract Share is ERC20, IShare {
         }
 
         mapping(address => uint256) storage spentVotes = voteParameters.spentVotes;
-        for (uint256 i = start; i < end; i++) {
+        for (uint256 i = start; i < end;) {
             Vote storage v = votes[i];
             address voter = v.voter;
             uint256 totalVotingPower = balanceOf(voter);
-            uint256 votingPower = totalVotingPower - spentVotes[voter]; //prevent "double spending" of votes
-            if (votingPower > 0) { //do not consider votes of shareholders who sold their shares or who bought shares from others who already voted
-                VoteChoice choice = v.choice;
-                if (choice == VoteChoice.IN_FAVOR) {
-                    inFavor += votingPower;
-                } else if (choice == VoteChoice.AGAINST) {
-                    against += votingPower;
-                } else if (choice == VoteChoice.ABSTAIN) {
-                    abstain += votingPower;
-                } else { //no votes do not count towards the quorum
-                    noVote += votingPower;
+            unchecked {
+                uint256 votingPower = totalVotingPower - spentVotes[voter]; //prevent "double spending" of votes
+                if (votingPower > 0) { //do not consider votes of shareholders who sold their shares or who bought shares from others who already voted
+                    VoteChoice choice = v.choice;
+                    if (choice == VoteChoice.IN_FAVOR) {
+                        inFavor += votingPower;
+                    } else if (choice == VoteChoice.AGAINST) {
+                        against += votingPower;
+                    } else if (choice == VoteChoice.ABSTAIN) {
+                        abstain += votingPower;
+                    } else { //no votes do not count towards the quorum
+                        noVote += votingPower;
+                    }
+                    spentVotes[voter] = totalVotingPower;
                 }
-                spentVotes[voter] = totalVotingPower;
+                i++;
             }
         }
 
@@ -1158,7 +1196,9 @@ contract Share is ERC20, IShare {
         voteParameters.abstain = abstain;
         voteParameters.noVote = noVote;
 
-        return maxEnd - end;
+        unchecked {
+            return maxEnd - end;
+        }
     }
 
     function verifyVotes(DecisionParameters storage dP, uint256 inFavor, uint256 against, uint256 abstain) internal view returns (VoteResult) {
@@ -1185,20 +1225,22 @@ contract Share is ERC20, IShare {
         if (quorumNumerator == 0) { //save on gas
             return true;
         } else {
-            //check first high
-            uint256 present = (presentNumerator >> 32)*quorumDenominator;
-            uint256 quorum = (quorumNumerator >> 32)*presentDenominator;
+            unchecked {
+                //check first high
+                uint256 present = (presentNumerator >> 32)*quorumDenominator;
+                uint256 quorum = (quorumNumerator >> 32)*presentDenominator;
 
-            if (present > quorum) {
-                return true;
-            } else if (present < quorum) {
-                return false;
+                if (present > quorum) {
+                    return true;
+                } else if (present < quorum) {
+                    return false;
+                }
+
+                //then check low
+                present = uint32(presentNumerator)*quorumDenominator;
+                quorum = uint32(quorumNumerator)*presentDenominator;
+                return (present >= quorum);
             }
-
-            //then check low
-            present = uint32(presentNumerator)*quorumDenominator;
-            quorum = uint32(quorumNumerator)*presentDenominator;
-            return (present >= quorum);
         }
     }
 }
