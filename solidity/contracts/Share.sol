@@ -7,35 +7,10 @@ import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import 'contracts/IExchange.sol';
 import 'contracts/IShare.sol';
+import 'contracts/PackableAddresses.sol';
 
 enum VotingStage {
     VOTING_IN_PROGRESS, VOTING_HAS_ENDED, EXECUTION_HAS_ENDED
-}
-
-/**
-Deleting an array or resetting an array to an empty array is broken in Solidity,
-since the gas cost for both is O(n) with n the number of elements in the original array and n can be unbounded.
-
-Whenever an array is used, a mechanism must be provided to reduce the size of the array, to prevent iterating over the array becoming too costly.
-This mechanism however cannot rely on deleting or resetting the array, since these operations fail themselves at this point.
-
-Iteration over an array has to happen in a paged manner
-
-Arrays can be reduced as follows:
-- we need to store an extra field for the length of the array in exchangesLength (the length property of the exchanges array is only useful to determine whether we have to push or overwrite an existing value)
-- we need to store an extra field for the length of the packed array in packedLength (during packing)
-- we need to store an extra field for the array index from where the array has not been packed yet in unpackedIndex
-
-if unpackedIndex == 0, all elements of the array are  in [0, exchangesLength[
-
-if unpackedIndex > 0, all elements of the array are in [0, packedLength[ and [unpackedIndex, exchangesLength[
-*/
-struct ExchangeInfo {
-    uint256 unpackedIndex;
-    uint256 packedLength;
-    mapping(address => uint256) exchangeIndex;
-    uint256 exchangesLength;
-    address[] exchanges;
 }
 
 struct Vote {
@@ -79,21 +54,8 @@ contract Share is ERC20, IShare {
 
     address public owner;
 
-    mapping(address => ExchangeInfo) private exchangeInfo;
-
-    /**
-    In order to save gas costs while iterating over shareholders, they can be packed (old shareholders that are no shareholders anymore are removed)
-    Packing is in progress if and only if unpackedShareholderIndex > 0
-
-    if unpackedShareholderIndex == 0, we find all shareholders for the indices [1, shareholdersLength[
-    
-    if unpackedShareholderIndex > 0, we find all shareholders for the indices [1, packedShareholdersLength[ and [unpackedShareholderIndex, shareholdersLength[
-     */
-    uint256 private unpackedShareholderIndex; //up to where the packing went, 0 if no packing in progress
-    uint256 private packedShareholdersLength; //up to where the packing went, 0 if no packing in progress
-    mapping(address => uint256) private shareholderIndex;
-    uint256 private shareholdersLength; //after packing, the (invalid) contents at a location from this index onwards are ignored
-    address[] private shareholders; //we need to keep track of the shareholders in case of distributing a dividend
+    PackInfo private _shareholders;
+    mapping(address => PackInfo) private exchanges;
 
     //proposals
     mapping(uint16 => DecisionParameters) private decisionParameters;
@@ -125,8 +87,7 @@ contract Share is ERC20, IShare {
 
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
         owner = msg.sender;
-        shareholders.push(address(this)); //to make later operations on shareholders less costly
-        shareholdersLength = 1;
+        PackableAddresses.init(_shareholders);
         proposals.push(); //make sure that the pendingRequestId for any request > 0
     }
 
@@ -222,7 +183,7 @@ contract Share is ERC20, IShare {
                 processed[from] = totalProcessed - transferredProcessed;
             }
         }
-        uint256 index = shareholderIndex[to];
+        uint256 index = _shareholders.index[to];
         if (index < vP.processedShareholders) { //if the shareholder has already been processed
             unchecked {
                 uint256 transferredUnprocessed = transferAmount - transferredProcessed;
@@ -272,23 +233,23 @@ contract Share is ERC20, IShare {
 
 
     function getLockedUpAmount(address tokenAddress) public view virtual override returns (uint256) {
-        ExchangeInfo storage info = exchangeInfo[tokenAddress];
-        address[] storage exchanges = info.exchanges;
+        PackInfo storage info = exchanges[tokenAddress];
+        address[] storage exchangeAddresses = info.addresses;
 
         uint256 lockedUpAmount = 0;
         uint256 unpackedIndex = info.unpackedIndex;
         if (unpackedIndex == 0) {
-            for (uint256 i = 0; i < info.exchangesLength;) {
-                lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
+            for (uint256 i = 1; i < info.length;) {
+                lockedUpAmount += getLockedUpAmount(exchangeAddresses[i], tokenAddress);
                 unchecked { i++; }
             }
         } else {
-            for (uint256 i = 0; i < info.packedLength;) {
-                lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
+            for (uint256 i = 1; i < info.packedLength;) {
+                lockedUpAmount += getLockedUpAmount(exchangeAddresses[i], tokenAddress);
                 unchecked { i++; }
             }
-            for (uint256 i = unpackedIndex; i < info.exchangesLength;) {
-                lockedUpAmount += getLockedUpAmount(exchanges[i], tokenAddress);
+            for (uint256 i = unpackedIndex; i < info.length;) {
+                lockedUpAmount += getLockedUpAmount(exchangeAddresses[i], tokenAddress);
                 unchecked { i++; }
             }
         }
@@ -319,145 +280,49 @@ contract Share is ERC20, IShare {
 
 
     function getExchangeCount(address tokenAddress) external view virtual override returns (uint256) {
-        return exchangeInfo[tokenAddress].exchangesLength;        
+        return PackableAddresses.getCount(exchanges[tokenAddress]);
     }
 
     function getExchangePackSize(address tokenAddress) external view virtual override returns (uint256) {
-        ExchangeInfo storage info = exchangeInfo[tokenAddress];
-        unchecked {
-            return info.exchangesLength - info.unpackedIndex;
-        }
+        return PackableAddresses.getPackSize(exchanges[tokenAddress]);
     }
 
     function registerExchange(address tokenAddress, address exchange) internal {
-        ExchangeInfo storage info = exchangeInfo[tokenAddress];
-        mapping(address => uint256) storage exchangeIndex = info.exchangeIndex;
-        uint256 index = exchangeIndex[exchange];
-        if (index == 0) { //the exchange has not been registered yet OR was the first registered exchange
-            address[] storage exchanges = info.exchanges;
-            if ((exchanges.length == 0) || (exchanges[0] != exchange)) { //the exchange has not been registered yet
-                index = info.exchangesLength;
-                exchangeIndex[exchange] = index;
-                if (index < exchanges.length) {
-                    exchanges[index] = exchange;
-                } else {
-                    exchanges.push(exchange);
-                }
-                unchecked { info.exchangesLength++; }
-            }
-        }
+        PackInfo storage info = exchanges[tokenAddress];
+        PackableAddresses.init(info);
+        PackableAddresses.register(info, exchange);
     }
 
     function packExchanges(address tokenAddress, uint256 amountToPack) external virtual override {
-        require(amountToPack > 0);
+        PackableAddresses.pack(exchanges[tokenAddress], amountToPack, tokenAddress, isExchangePredicate);
+    }
 
-        ExchangeInfo storage info = exchangeInfo[tokenAddress];
-
-        uint256 start = info.unpackedIndex;
-        uint256 end = start + amountToPack;
-        uint256 maxEnd = info.exchangesLength;
-        if (end > maxEnd) {
-            end = maxEnd;
-        }
-
-        uint256 packedIndex;
-        if (start == 0) { //start a new packing
-            packedIndex = 0;
-        } else {
-            packedIndex = info.packedLength;
-        }
-
-        mapping(address => uint256) storage exchangeIndex = info.exchangeIndex;
-        address[] storage exchanges = info.exchanges;
-        for (uint256 i = start; i < end;) {
-            address exchange = exchanges[i];
-            if (getLockedUpAmount(exchange, tokenAddress) > 0) { //only register if the exchange still has locked up tokens
-                exchangeIndex[exchange] = packedIndex;
-                exchanges[packedIndex] = exchange;
-                unchecked{ packedIndex++; }
-            } else {
-                exchangeIndex[exchange] = 0;
-            }
-            unchecked { i++; }
-        }
-        info.packedLength = packedIndex;
-
-        if (end == maxEnd) {
-            info.unpackedIndex = 0;
-            info.exchangesLength = packedIndex;
-        } else {
-            info.unpackedIndex = end;
-        }
+    function isExchangePredicate(address tokenAddress, address exchange) internal view returns (bool) {
+        return (getLockedUpAmount(exchange, tokenAddress) > 0);
     }
 
     function getShareholderCount() public view virtual override returns (uint256) {
-        unchecked {
-            return shareholdersLength - 1; //the first address is taken by this contract, which is not a shareholder
-        }
+        return PackableAddresses.getCount(_shareholders);
     }
 
     function getShareholderNumber(address shareholder) external view virtual override returns (uint256) {
-        return shareholderIndex[shareholder];
-    }
-
-    function registerShareholder(address shareholder) internal {
-        uint256 index = shareholderIndex[shareholder];
-        if (index == 0) { //the shareholder has not been registered yet (the address at index 0 is this contract)
-            index = shareholdersLength;
-            shareholderIndex[shareholder] = index;
-            if (index < shareholders.length) {
-                shareholders[index] = shareholder;
-            } else {
-                shareholders.push(shareholder);
-            }
-            unchecked { shareholdersLength++; }
-        }
+        return _shareholders.index[shareholder];
     }
 
     function getShareholderPackSize() external view virtual override returns (uint256) {
-        unchecked {
-            return (unpackedShareholderIndex == 0) ? getShareholderCount() : (shareholdersLength - unpackedShareholderIndex);
-        }
+        return PackableAddresses.getPackSize(_shareholders);
+    }
+
+    function registerShareholder(address shareholder) internal {
+        PackableAddresses.register(_shareholders, shareholder);
     }
 
     function packShareholders(uint256 amountToPack) external virtual override {
-        require(amountToPack > 0);
+        PackableAddresses.pack(_shareholders, amountToPack, address(0), isShareholder);
+    }
 
-        uint256 start = unpackedShareholderIndex;
-
-        uint256 packedIndex;
-        if (start == 0) { //start a new packing
-            start = 1; //keep address(this) as the first entry in the shareholders array (to simplify later calculations)
-            packedIndex = 1;
-        } else {
-            packedIndex = packedShareholdersLength;
-        }
-
-        uint256 end = start + amountToPack;
-        uint256 maxEnd = shareholdersLength;
-        if (end > maxEnd) {
-            end = maxEnd;
-        }
-
-        for (uint256 i = start; i < end;) {
-            address shareholder = shareholders[i];
-            if (balanceOf(shareholder) > 0) { //only register if the address is an actual shareholder
-                shareholderIndex[shareholder] = packedIndex;
-                shareholders[packedIndex] = shareholder;
-                unchecked { packedIndex++; }
-            } else {
-                shareholderIndex[shareholder] = 0;
-            }
-            unchecked { i++; }
-        }
-        packedShareholdersLength = packedIndex;
-
-        if (end == maxEnd) {
-            unpackedShareholderIndex = 0;
-            shareholdersLength = packedIndex;
-        } else {
-            unpackedShareholderIndex = end;
-        }
+    function isShareholder(address, address shareholder) internal view returns (bool) {
+        return balanceOf(shareholder) > 0;
     }
 
 
@@ -773,7 +638,7 @@ contract Share is ERC20, IShare {
                 }
 
                 uint256 end = start + pageSize;
-                uint256 maxEnd = shareholdersLength;
+                uint256 maxEnd = _shareholders.length;
                 if (end > maxEnd) {
                     end = maxEnd;
                 }
@@ -809,6 +674,7 @@ contract Share is ERC20, IShare {
     function doFinish(VoteParameters storage vP, ActionType decisionType, uint256 start, uint256 end, IERC20 erc20, uint256 amountPerShare, address optionalCurrencyAddress, uint256 optionalAmount) private {
         mapping(address => uint256) storage processedShares = vP.processedShares;
 
+        address[] storage shareholders = _shareholders.addresses;
         if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
             for (uint256 i = start; i < end;) {
                 address shareholder = shareholders[i];
