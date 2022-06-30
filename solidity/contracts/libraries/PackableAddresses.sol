@@ -54,6 +54,10 @@ library PackableAddresses {
         uint256 index = packInfo.index[addr];
         if (index == 0) { //the address has not been registered yet
             index = packInfo.length;
+            if (index == 0) {
+                init(packInfo);
+                index = 1;
+            }
             packInfo.index[addr] = index;
             if (index < packInfo.length) {
                 packInfo.addresses[index] = addr;

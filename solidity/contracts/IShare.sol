@@ -2,34 +2,15 @@
 
 pragma solidity ^0.8.9;
 
+import 'contracts/libraries/Voting.sol';
+
 enum ActionType {
     DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, WITHDRAW_FUNDS, CANCEL_ORDER, RAISE_FUNDS, BUY_BACK, ASK, BID, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
-}
-
-enum VoteChoice {
-    NO_VOTE, IN_FAVOR, AGAINST, ABSTAIN
-}
-
-enum VoteResult {
-    NON_EXISTENT, PENDING, PARTIAL_VOTE_COUNT, PARTIAL_EXECUTION, APPROVED, REJECTED, EXPIRED, WITHDRAWN, NO_OUTSTANDING_SHARES
-}
-
-struct DecisionParameters {
-    uint64 decisionTime; //How much time in seconds shareholders have to approve a request
-    uint64 executionTime; //How much time in seconds the owner has to execute an approved request after the decisionTime has ended
-    //to approve a vote, both the quorum and the majority need to be reached.
-    //a vote is approved if and only if the quorum and the majority are reached on the decisionTime, otherwise it is rejected
-    uint32 quorumNumerator;     //the required quorum is calculated as quorumNumerator/quorumDenominator
-    uint32 quorumDenominator;   //the required quorum is compared to the number of votes that are in favor, against or abstain divided by the total number of votes
-    uint32 majorityNumerator;   //the required majority is calculated as majorityNumerator/majorityDenominator and must be greater than 1/2
-    uint32 majorityDenominator; //the required majority is compared to the number of votes that are in favor divided by the number of votes that are either in favor or against
 }
 
 error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
-error CannotVote();
-error CannotExecuteAtOnce();
 error CannotFinish();
 
 interface IShare {
