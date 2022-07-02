@@ -57,15 +57,13 @@ struct VoteParameters {
 error CannotVote();
 
 library Voting {
-    function init(VoteParameters storage vP, uint16 voteType, DecisionParameters storage dP, uint256 outstandingShareCount) internal returns (bool) {
+    function init(VoteParameters storage vP, uint16 voteType, DecisionParameters storage dP, bool isNoOutstandingShares) internal {
         vP.startTime = uint64(block.timestamp); // 500 000 000 000 years is more than enough, save some storage space
         vP.voteType = voteType;
         vP.decisionParameters = dP; //copy by value
         vP.countedVotes = 1; //the first vote is from this address(this) with VoteChoice.NO_VOTE, ignore this vote
         vP.votes.push(Vote(address(this), VoteChoice.NO_VOTE)); //this reduces checks on index == 0 to be made in the vote method, to save gas for the vote method
-        bool isAutoApprove = (outstandingShareCount == 0);
-        vP.result = isAutoApprove ? VoteResult.NO_OUTSTANDING_SHARES : VoteResult.PENDING;
-        return isAutoApprove;
+        vP.result = isNoOutstandingShares ? VoteResult.NO_OUTSTANDING_SHARES : VoteResult.PENDING;
     }
 
     function getDecisionParameters(VoteParameters storage vP) internal view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32) {
