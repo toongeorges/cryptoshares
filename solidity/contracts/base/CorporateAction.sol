@@ -285,23 +285,26 @@ abstract contract CorporateAction is Proposals {
                     }
                 }
             } else if (decisionType < ActionType.REVERSE_SPLIT) {
-                IExchange exchange = IExchange(exchangeAddress);
                 if (decisionType < ActionType.ASK) {
                     if (decisionType == ActionType.RAISE_FUNDS) {
+                        IExchange exchange = IExchange(exchangeAddress);
                         increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
                         PackableAddresses.register(exchanges[address(this)], exchangeAddress);
                         exchange.ask(address(this), numberOfShares, currency, numberOfShares*amount, optionalAmount);
                     } else  { //decisionType == ActionType.BUY_BACK
+                        IExchange exchange = IExchange(exchangeAddress);
                         IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
                         PackableAddresses.register(exchanges[currency], exchangeAddress);
                         exchange.bid(currency, numberOfShares*amount, address(this), numberOfShares, optionalAmount);
                     }
                 } else {
                     if (decisionType == ActionType.ASK) {
+                        IExchange exchange = IExchange(exchangeAddress);
                         IERC20(currency).safeIncreaseAllowance(exchangeAddress, amount); //only send to safe exchanges, the total price is locked up
                         PackableAddresses.register(exchanges[currency], exchangeAddress);
                         exchange.ask(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                     } else  { //decisionType == ActionType.BID
+                        IExchange exchange = IExchange(exchangeAddress);
                         IERC20(optionalCurrency).safeIncreaseAllowance(exchangeAddress, optionalAmount); //only send to safe exchanges, the total price is locked up
                         PackableAddresses.register(exchanges[optionalCurrency], exchangeAddress);
                         exchange.bid(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
