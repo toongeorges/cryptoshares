@@ -25,14 +25,14 @@ struct PackInfo {
     uint256 packedLength;  //up to where the packing went, 0 if no packing in progress
     mapping(address => uint256) index;
     uint256 length; //after packing, the (invalid) contents at a location from this index onwards are ignored
-    address[] addresses;
+    mapping(uint256 => address) addresses;
 }
 
 library PackableAddresses {
 
     function init(PackInfo storage packInfo) internal {
-        if (packInfo.addresses.length == 0) {
-            packInfo.addresses.push(msg.sender);  //to make later operations on addresses less costly
+        if (packInfo.length == 0) {
+            packInfo.addresses[0] = msg.sender;  //to make later operations on addresses less costly
             packInfo.length = 1;
         }
     }
@@ -59,11 +59,7 @@ library PackableAddresses {
                 index = 1;
             }
             packInfo.index[addr] = index;
-            if (index < packInfo.length) {
-                packInfo.addresses[index] = addr;
-            } else {
-                packInfo.addresses.push(addr);
-            }
+            packInfo.addresses[index] = addr;
             unchecked { packInfo.length++; }
         }
     }
@@ -91,7 +87,7 @@ library PackableAddresses {
             }
 
             mapping(address => uint256) storage index = packInfo.index;
-            address[] storage addresses = packInfo.addresses;
+            mapping(uint256 => address) storage addresses = packInfo.addresses;
             for (uint256 i = start; i < end;) {
                 address selected = addresses[i];
                 if (isStillValid(context, selected)) { //only register if the address is still valid

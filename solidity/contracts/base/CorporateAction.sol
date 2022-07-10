@@ -88,7 +88,7 @@ abstract contract CorporateAction is Proposals {
 
     function getLockedUpAmount(address tokenAddress) public view virtual override returns (uint256) {
         PackInfo storage info = exchanges[tokenAddress];
-        address[] storage exchangeAddresses = info.addresses;
+        mapping(uint256 => address) storage exchangeAddresses = info.addresses;
 
         uint256 lockedUpAmount = 0;
         uint256 unpackedIndex = info.unpackedIndex;
@@ -399,7 +399,7 @@ abstract contract CorporateAction is Proposals {
     function doFinish(VoteParameters storage vP, ActionType decisionType, uint256 start, uint256 end, IERC20 erc20, uint256 amountPerShare, address optionalCurrencyAddress, uint256 optionalAmount) private {
         mapping(address => uint256) storage processedShares = vP.processedShares;
 
-        address[] storage shareholders = _shareholders.addresses;
+        mapping(uint256 => address) storage shareholders = _shareholders.addresses;
         if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
             for (uint256 i = start; i < end;) {
                 address shareholder = shareholders[i];
