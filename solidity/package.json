@@ -16,9 +16,6 @@
   ],
   "author": "Toon Macharis",
   "license": "MIT",
-  "dependencies": {
-    "web3": "^1.7.3"
-  },
   "devDependencies": {
     "@openzeppelin/contracts": "^4.6.0",
     "@nomiclabs/hardhat-ethers": "^2.0.6",
