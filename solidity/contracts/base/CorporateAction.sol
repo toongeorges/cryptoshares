@@ -296,13 +296,13 @@ abstract contract CorporateAction is Proposals {
                     if (decisionType == ActionType.RAISE_FUNDS) {
                         _raiseFunds(exchanges, exchangeAddress, numberOfShares, currency, amount, optionalAmount);
                     } else  { //decisionType == ActionType.BUY_BACK
-                        _buyBack(exchanges, exchangeAddress, numberOfShares, currency, amount, optionalAmount);
+                        _buyBack(exchangeAddress, numberOfShares, currency, amount, optionalAmount);
                     }
                 } else {
                     if (decisionType == ActionType.ASK) {
-                        _ask(exchanges, exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                        _ask(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                     } else  { //decisionType == ActionType.BID
-                        _bid(exchanges, exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                        _bid(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                     }
                 }
             } else if ((decisionType == ActionType.DISTRIBUTE_DIVIDEND) && (optionalCurrency != address(0))) { //we need to trigger ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, which requires another vote to either approve or reject the optional dividend
@@ -350,21 +350,21 @@ abstract contract CorporateAction is Proposals {
         exchange.ask(address(this), numberOfShares, currency, numberOfShares*amount, maxOrders);
     }
 
-    function _buyBack(mapping(address => PackInfo) storage _exchanges, address exchangeAddress, uint256 numberOfShares, address currency, uint256 amount, uint256 maxOrders) private {
+    function _buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 amount, uint256 maxOrders) private {
         IExchange exchange = IExchange(exchangeAddress);
         IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
         PackableAddresses.register(exchanges[currency], exchangeAddress);
         exchange.bid(currency, numberOfShares*amount, address(this), numberOfShares, maxOrders);
     }
 
-    function _ask(mapping(address => PackInfo) storage _exchanges, address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) private {
+    function _ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) private {
         IExchange exchange = IExchange(exchangeAddress);
         IERC20(asset).safeIncreaseAllowance(exchangeAddress, assetAmount); //only send to safe exchanges, the total price is locked up
         PackableAddresses.register(exchanges[asset], exchangeAddress);
         exchange.ask(asset, assetAmount, currency, currencyAmount, maxOrders);
     }
 
-    function _bid(mapping(address => PackInfo) storage _exchanges, address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) private {
+    function _bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) private {
         IExchange exchange = IExchange(exchangeAddress);
         IERC20(currency).safeIncreaseAllowance(exchangeAddress, currencyAmount); //only send to safe exchanges, the total price is locked up
         PackableAddresses.register(exchanges[currency], exchangeAddress);
@@ -410,11 +410,11 @@ abstract contract CorporateAction is Proposals {
                 IERC20 erc20 = IERC20(currencyAddress);
 
                 if (decisionType == ActionType.DISTRIBUTE_DIVIDEND) {
-                    finishDistributeDividend(vP.processedShares, shareholders.addresses, start, end, erc20, amountPerShare, optionalCurrencyAddress, optionalAmount);
+                    finishDistributeDividend(vP.processedShares, shareholders.addresses, start, end, erc20, amountPerShare);
                 } else if (decisionType == ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND) {
                     finishDistributeOptionalDividend(vP, vP.processedShares, shareholders.addresses, start, end, erc20, amountPerShare, optionalCurrencyAddress, optionalAmount);
                 } else { //(decisionType == ActionType.REVERSE_SPLIT)
-                    finishReverseSplit(vP.processedShares, shareholders.addresses, start, end, erc20, amountPerShare, optionalCurrencyAddress, optionalAmount);
+                    finishReverseSplit(vP.processedShares, shareholders.addresses, start, end, erc20, amountPerShare, optionalAmount);
                 }
 
                 vP.processedShareholders = end;
@@ -440,7 +440,7 @@ abstract contract CorporateAction is Proposals {
         }
     }
 
-    function finishDistributeDividend(mapping(address => uint256) storage processedShares, mapping(uint256 => address) storage _shareholders, uint256 start, uint256 end, IERC20 erc20, uint256 amountPerShare, address optionalCurrencyAddress, uint256 optionalAmount) private {
+    function finishDistributeDividend(mapping(address => uint256) storage processedShares, mapping(uint256 => address) storage _shareholders, uint256 start, uint256 end, IERC20 erc20, uint256 amountPerShare) private {
         for (uint256 i = start; i < end;) {
             address shareholder = _shareholders[i];
             uint256 totalShares = balanceOf(shareholder);
@@ -477,7 +477,7 @@ abstract contract CorporateAction is Proposals {
         }
     }
 
-    function finishReverseSplit(mapping(address => uint256) storage processedShares, mapping(uint256 => address) storage _shareholders, uint256 start, uint256 end, IERC20 erc20, uint256 amountPerShare, address optionalCurrencyAddress, uint256 optionalAmount) private {
+    function finishReverseSplit(mapping(address => uint256) storage processedShares, mapping(uint256 => address) storage _shareholders, uint256 start, uint256 end, IERC20 erc20, uint256 amountPerShare, uint256 reverseSplitRatio) private {
         for (uint256 i = start; i < end;) {
             address shareholder = _shareholders[i];
             uint256 totalShares = balanceOf(shareholder);
@@ -485,16 +485,16 @@ abstract contract CorporateAction is Proposals {
             uint256 unprocessedShares;
             unchecked { unprocessedShares = totalShares - processed; }
             if (unprocessedShares > 0) {
-                uint256 remainingShares = unprocessedShares/optionalAmount;
+                uint256 remainingShares = unprocessedShares/reverseSplitRatio;
                 unchecked {
                     processedShares[shareholder] = processed + remainingShares;
 
-                    //reduce the stake of the shareholder from stake -> stake/optionalAmount == stake - (stake - stake/optionalAmount)
+                    //reduce the stake of the shareholder from stake -> stake/reverseSplitRatio == stake - (stake - stake/reverseSplitRatio)
                     _burn(shareholder, unprocessedShares - remainingShares);
                 }
 
                 //pay out fractional shares
-                uint256 fraction = unprocessedShares%optionalAmount;
+                uint256 fraction = unprocessedShares%reverseSplitRatio;
                 if (fraction > 0) {
                     safeTransfer(erc20, shareholder, fraction*amountPerShare);
                 }
