@@ -14,10 +14,6 @@ enum OrderStatus {
     ACTIVE, CANCELLED, EXECUTED
 }
 
-enum Ordering {
-    LESS_THAN, EQUAL_TO, GREATER_THAN
-}
-
 struct Order {
     address owner;
     OrderType orderType;
@@ -41,8 +37,7 @@ struct Execution {
 
 struct OrderHead {
     uint256 id;
-    uint256 assetAmount;
-    uint256 currencyAmount;
+    uint256 price;
     uint256 numberOfOrders;
     uint256 firstOrder;
     uint256 lastOrder;
@@ -51,27 +46,7 @@ struct OrderHead {
     uint256 next;
 }
 
-/*
-struct OrderList {
-    mapping(uint256 => Order) asks;
-    mapping(address => uint256[]) asksByUser;
-    uint256 activeAskSize;
-    uint256 firstAsk;
-    mapping(uint256 => uint256) nextAsk;
-
-    mapping(uint256 => Order) bids;
-    mapping(address => uint256[]) bidsByUser;
-    uint256 activeBidSize;
-    uint256 firstBid;
-    mapping(uint256 => uint256) nextBid;
-}
-
-struct OrderBook {
-    uint256 orderId;
-    address[] currencies;
-    mapping(address => OrderList) ordersByCurrency;
-}
-*/
+error FractionalPriceNotSupported(uint256 assetAmount, uint256 currencyAmount, uint256 price, uint256 fractionalPrice);
 
 contract Exchange is IExchange {
     using SafeERC20 for IERC20;
@@ -118,21 +93,23 @@ contract Exchange is IExchange {
     }
 
     //will execute up to maxOrders orders where assets are sold for the currency at a ratio >= currencyAmount/assetAmount
-    function ask(address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256) external virtual override returns (uint256) {
+    function ask(address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external virtual override returns (uint256) {
+        uint256 price = verifyNoFractionalPrice(assetAmount, currencyAmount); //otherwise matching ask and bid orders may cause troubles
         lockUp(msg.sender, asset, assetAmount);
         (uint256 id, Order storage order) = createOrder(OrderType.BID, asset, assetAmount, currency, currencyAmount);
-        //TODO only if the order cannot be fully executed
-        insertAskOrder(order, id, asset, assetAmount, currency, currencyAmount, assetAmount);
+        uint256 remaining = matchAskOrder(order, id, asset, currency, price, assetAmount, maxOrders);
+        insertAskOrder(order, id, asset, currency, price, remaining);
 
         return id;
     }
 
     //will execute up to maxOrders orders where assets are bought for the currency at a ratio <= currencyAmount/assetAmount
-    function bid(address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256) external virtual override returns (uint256) {
+    function bid(address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external virtual override returns (uint256) {
+        uint256 price = verifyNoFractionalPrice(assetAmount, currencyAmount); //otherwise matching ask and bid orders may cause troubles
         lockUp(msg.sender, currency, currencyAmount);
         (uint256 id, Order storage order) = createOrder(OrderType.BID, asset, assetAmount, currency, currencyAmount);
-        //TODO only if the order cannot be fully executed
-        insertBidOrder(order, id, asset, assetAmount, currency, currencyAmount, assetAmount);
+        uint256 remaining = matchBidOrder(order, id, asset, currency, price, assetAmount, maxOrders);
+        insertBidOrder(order, id, asset, currency, price, remaining);
 
         return id;
     }
@@ -166,116 +143,148 @@ contract Exchange is IExchange {
         return (id, order);
     }
 
-    function insertAskOrder(Order storage order, uint256 orderId, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 remaining) internal {
-        OrderHead storage selected = initialAskOrderHeads[asset][currency];
-        uint256 selectedId = selected.id;
-        if (selectedId == 0) { //an OrderHead has not been created yet
-            initialAskOrderHeads[asset][currency] = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
-        } else {
-            Ordering ordering = compare(assetAmount, currencyAmount, selected.assetAmount, selected.currencyAmount);
-            if (ordering == Ordering.LESS_THAN) { //the new order has a lower price
-                OrderHead storage newInitial = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
-                initialAskOrderHeads[asset][currency] = newInitial;
+    function matchAskOrder(Order storage order, uint256 orderId, address asset, address currency, uint256 price, uint256 remaining, uint maxOrders) internal returns (uint256) {
+        if ((maxOrders > 0) && (remaining > 0)) {
+            OrderHead storage bids = initialBidOrderHeads[asset][currency];
+            uint256 matchedPrice = bids.price;
+            Order storage matchedOrder = orders[bids.firstOrder];
 
-                newInitial.next = selectedId;
-                selected.previous = orderId;
-            } else if (ordering == Ordering.EQUAL_TO) { //the new order has the same price
-                addOrderToEnd(selected, order, orderId, remaining);
-            } else { //ordering == Ordering.GREATER_THAN, the new order has a higher price
-                uint256 previousId = selectedId;
-                selectedId = selected.next;
+            //while bid orders are willing to pay at least the ask price
+            while (price <= matchedPrice) {
+            }
+        }
 
-                while (selectedId != 0) {
-                    OrderHead storage previous = selected;
-                    selected = orderHeads[selectedId];
-        
-                    ordering = compare(assetAmount, currencyAmount, selected.assetAmount, selected.currencyAmount);
-                    if (ordering == Ordering.LESS_THAN) { //the new order has a lower price
-                        OrderHead storage newOrderHead = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
+        return remaining;
+    }
 
-                        previous.next = orderId;
-                        newOrderHead.previous = previousId;
-                        newOrderHead.next = selectedId;
-                        selected.previous = orderId;
+    function insertAskOrder(Order storage order, uint256 orderId, address asset, address currency, uint256 price, uint256 remaining) internal {
+        if (remaining > 0) {
+            OrderHead storage selected = initialAskOrderHeads[asset][currency];
+            uint256 selectedId = selected.id;
+            if (selectedId == 0) { //an OrderHead has not been created yet
+                initialAskOrderHeads[asset][currency] = initOrderHead(order, orderId, price, remaining);
+            } else {
+                uint256 selectedPrice = selected.price;
+                if (price < selectedPrice) { //the new order has a lower price
+                    OrderHead storage newInitial = initOrderHead(order, orderId, price, remaining);
+                    initialAskOrderHeads[asset][currency] = newInitial;
 
-                        return; //do not initiate a new order head at the end of the list
-                    } else if (ordering == Ordering.EQUAL_TO) { //the new order has the same price
-                        addOrderToEnd(selected, order, orderId, remaining);
+                    newInitial.next = selectedId;
+                    selected.previous = orderId;
+                } else if (price == selectedPrice) { //the new order has the same price
+                    addOrderToEnd(selected, order, orderId, remaining);
+                } else { //ordering == Ordering.GREATER_THAN, the new order has a higher price
+                    uint256 previousId = selectedId;
+                    selectedId = selected.next;
 
-                        return; //do not initiate a new order head at the end of the list
+                    while (selectedId != 0) {
+                        OrderHead storage previous = selected;
+                        selected = orderHeads[selectedId];
+                        selectedPrice = selected.price;
+            
+                        if (price < selectedPrice) { //the new order has a lower price
+                            OrderHead storage newOrderHead = initOrderHead(order, orderId, price, remaining);
+
+                            previous.next = orderId;
+                            newOrderHead.previous = previousId;
+                            newOrderHead.next = selectedId;
+                            selected.previous = orderId;
+
+                            return; //do not initiate a new order head at the end of the list
+                        } else if (price == selectedPrice) { //the new order has the same price
+                            addOrderToEnd(selected, order, orderId, remaining);
+
+                            return; //do not initiate a new order head at the end of the list
+                        }
+
+                        previousId = selectedId;
+                        selectedId = selected.next;
                     }
 
-                    previousId = selectedId;
-                    selectedId = selected.next;
+                    //we reached the end of the list
+                    OrderHead storage lastOrderHead = initOrderHead(order, orderId, price, remaining);
+
+                    selected.next = orderId; //selected has not been updated before exiting the while loop
+                    lastOrderHead.previous = previousId; //previousId has been updated before exiting the while loop
                 }
-
-                //we reached the end of the list
-                OrderHead storage lastOrderHead = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
-
-                selected.next = orderId; //selected has not been updated before exiting the while loop
-                lastOrderHead.previous = previousId; //previousId has been updated before exiting the while loop
             }
         }
     }
 
-    function insertBidOrder(Order storage order, uint256 orderId, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 remaining) internal {
-        OrderHead storage selected = initialBidOrderHeads[asset][currency];
-        uint256 selectedId = selected.id;
-        if (selectedId == 0) { //an OrderHead has not been created yet
-            initialBidOrderHeads[asset][currency] = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
-        } else {
-            Ordering ordering = compare(assetAmount, currencyAmount, selected.assetAmount, selected.currencyAmount);
-            if (ordering == Ordering.GREATER_THAN) { //the new order has a higher price
-                OrderHead storage newInitial = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
-                initialBidOrderHeads[asset][currency] = newInitial;
+    function matchBidOrder(Order storage order, uint256 orderId, address asset, address currency, uint256 price, uint256 remaining, uint maxOrders) internal returns (uint256) {
+        return remaining;
+    }
 
-                newInitial.next = selectedId;
-                selected.previous = orderId;
-            } else if (ordering == Ordering.EQUAL_TO) { //the new order has the same price
-                addOrderToEnd(selected, order, orderId, remaining);
-            } else { //ordering == Ordering.LESS_THAN, the new order has a lower price
-                uint256 previousId = selectedId;
-                selectedId = selected.next;
+    function insertBidOrder(Order storage order, uint256 orderId, address asset, address currency, uint256 price, uint256 remaining) internal {
+        if (remaining > 0) {
+            OrderHead storage selected = initialBidOrderHeads[asset][currency];
+            uint256 selectedId = selected.id;
+            if (selectedId == 0) { //an OrderHead has not been created yet
+                initialBidOrderHeads[asset][currency] = initOrderHead(order, orderId, price, remaining);
+            } else {
+                uint256 selectedPrice = selected.price;
+                if (price > selectedPrice) { //the new order has a higher price
+                    OrderHead storage newInitial = initOrderHead(order, orderId, price, remaining);
+                    initialBidOrderHeads[asset][currency] = newInitial;
 
-                while (selectedId != 0) {
-                    OrderHead storage previous = selected;
-                    selected = orderHeads[selectedId];
-        
-                    ordering = compare(assetAmount, currencyAmount, selected.assetAmount, selected.currencyAmount);
-                    if (ordering == Ordering.GREATER_THAN) { //the new order has a higher price
-                        OrderHead storage newOrderHead = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
+                    newInitial.next = selectedId;
+                    selected.previous = orderId;
+                } else if (price == selectedPrice) { //the new order has the same price
+                    addOrderToEnd(selected, order, orderId, remaining);
+                } else { //the new order has a lower price
+                    uint256 previousId = selectedId;
+                    selectedId = selected.next;
 
-                        previous.next = orderId;
-                        newOrderHead.previous = previousId;
-                        newOrderHead.next = selectedId;
-                        selected.previous = orderId;
+                    while (selectedId != 0) {
+                        OrderHead storage previous = selected;
+                        selected = orderHeads[selectedId];
+                        selectedPrice = selected.price;
+            
+                        if (price > selectedPrice) { //the new order has a higher price
+                            OrderHead storage newOrderHead = initOrderHead(order, orderId, price, remaining);
 
-                        return; //do not initiate a new order head at the end of the list
-                    } else if (ordering == Ordering.EQUAL_TO) { //the new order has the same price
-                        addOrderToEnd(selected, order, orderId, remaining);
+                            previous.next = orderId;
+                            newOrderHead.previous = previousId;
+                            newOrderHead.next = selectedId;
+                            selected.previous = orderId;
 
-                        return; //do not initiate a new order head at the end of the list
+                            return; //do not initiate a new order head at the end of the list
+                        } else if (price == selectedPrice) { //the new order has the same price
+                            addOrderToEnd(selected, order, orderId, remaining);
+
+                            return; //do not initiate a new order head at the end of the list
+                        }
+
+                        previousId = selectedId;
+                        selectedId = selected.next;
                     }
 
-                    previousId = selectedId;
-                    selectedId = selected.next;
+                    //we reached the end of the list
+                    OrderHead storage lastOrderHead = initOrderHead(order, orderId, price, remaining);
+
+                    selected.next = orderId; //selected has not been updated before exiting the while loop
+                    lastOrderHead.previous = previousId; //previousId has been updated before exiting the while loop
                 }
-
-                //we reached the end of the list
-                OrderHead storage lastOrderHead = initOrderHead(order, orderId, assetAmount, currencyAmount, remaining);
-
-                selected.next = orderId; //selected has not been updated before exiting the while loop
-                lastOrderHead.previous = previousId; //previousId has been updated before exiting the while loop
             }
         }
     }
 
-    function initOrderHead(Order storage order, uint256 orderId, uint256 assetAmount, uint256 currencyAmount, uint256 remaining) private returns (OrderHead storage) {
+    function verifyNoFractionalPrice(uint256 assetAmount, uint256 currencyAmount) internal pure returns (uint256) {
+        uint256 price = currencyAmount/assetAmount;
+        uint256 fractionalPrice = currencyAmount%assetAmount;
+
+        if (fractionalPrice != 0) {
+            revert FractionalPriceNotSupported(assetAmount, currencyAmount, price, fractionalPrice);
+        } else {
+            return price;
+        }
+    }
+
+    function initOrderHead(Order storage order, uint256 orderId, uint256 price, uint256 remaining) private returns (OrderHead storage) {
         OrderHead storage orderHead = orderHeads[orderId];
 
         orderHead.id = orderId;
-        orderHead.assetAmount = assetAmount;
-        orderHead.currencyAmount = currencyAmount;
+        orderHead.price = price;
         orderHead.numberOfOrders = 1;
         orderHead.firstOrder = orderId;
         orderHead.lastOrder = orderId;
@@ -294,37 +303,5 @@ contract Exchange is IExchange {
         orderHead.numberOfOrders++;
         orderHead.lastOrder = orderId;
         orderHead.remaining += remaining;
-    }
-
-    function compare(uint256 leftAssetAmount, uint256 leftCurrencyAmount, uint256 rightAssetAmount, uint256 rightCurrencyAmount) internal pure returns (Ordering) {
-        //leftPrice == leftCurrencyAmount/leftAssetAmount < rightPrice == rightCurrencyAmount/rightAssetAmount
-        //<=> leftCurrencyAmount*rightAssetAmount < rightCurrencyAmount*leftAssetAmount
-
-        //see https://medium.com/wicketh/mathemagic-full-multiply-27650fec525d
-        uint256 leftLow;
-        uint256 leftHigh;
-        uint256 rightLow;
-        uint256 rightHigh;
-        assembly {
-            let leftMM := mulmod(leftCurrencyAmount, rightAssetAmount, not(0))
-            leftLow := mul(leftCurrencyAmount, rightAssetAmount)
-            leftHigh := sub(sub(leftMM, leftLow), lt(leftMM, leftLow))
-
-            let rightMM := mulmod(rightCurrencyAmount, leftAssetAmount, not(0))
-            rightLow := mul(rightCurrencyAmount, leftAssetAmount)
-            rightHigh := sub(sub(rightMM, rightLow), lt(rightMM, rightLow))
-        }
-
-        if (leftHigh < rightHigh) {
-            return Ordering.LESS_THAN;
-        } else if (leftHigh > rightHigh) {
-            return Ordering.GREATER_THAN;
-        } else if (leftLow < rightLow) {
-            return Ordering.LESS_THAN;
-        } else if (leftLow > rightLow) {
-            return Ordering.GREATER_THAN;
-        } else {
-            return Ordering.EQUAL_TO;
-        }
     }
 }
