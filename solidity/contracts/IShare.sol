@@ -5,7 +5,7 @@ pragma solidity ^0.8.9;
 import 'contracts/libraries/Voting.sol';
 
 enum ActionType {
-    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, WITHDRAW_FUNDS, CANCEL_ORDER, RAISE_FUNDS, BUY_BACK, ASK, BID, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
+    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, WITHDRAW_FUNDS, CANCEL_ORDER, ASK, BID, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
 }
 
 error RequestPending();
@@ -52,22 +52,14 @@ interface IShare {
       amount: the id of the order that needs to be canceled
       optionalCurrency: not applicable
       optionalAmount: not applicable
-    
-      for RAISE_FUNDS and BUY_BACK:
-      numberOfShares: the number of shares to be sold or bought back
-      exchange: the exchange on which the ask or bid order will be placed
-      currency: the ERC20 token the share will be traded against
-      amount: the amount of ERC20 tokens for 1 share
-      optionalCurrency: not applicable
-      optionalAmount: the maximum amount of orders executed on the exchange
 
       for ASK and BID:
       numberOfShares: the maximum amount of orders executed on the exchange
       exchange: the exchange on which the ask or bid order will be placed
-      currency: the asset that is sold or bought
+      currency: the asset that is sold or bought (could be the own stock)
       amount: the amount of the asset to be sold or bought
       optionalCurrency: the currency in which the asset is sold or bought
-      optionalAmount: for ASK, the minimum amount of the currency to receive for selling all assets, for BID, the maximum amount of the currency for buying all assets
+      optionalAmount: for ASK, the minimum price to receive for selling an asset, for BID, the maximum price for buying an asset
 
       for REVERSE_SPLIT:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
@@ -127,10 +119,8 @@ interface IShare {
 
     function issueShares(uint256 numberOfShares) external returns (uint256);
     function destroyShares(uint256 numberOfShares) external returns (uint256);
-    function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256);
-    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256);
+    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
     function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
 

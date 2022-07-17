@@ -203,28 +203,16 @@ abstract contract CorporateAction is Proposals {
         return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
     }
 
-    function raiseFunds(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
-        require(getTreasuryShareCount() >= numberOfShares);
-
-        return initiateCorporateAction(ActionType.RAISE_FUNDS, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
-    }
-
-    function buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
-        verifyAvailable(currency, numberOfShares*price);
-
-        return initiateCorporateAction(ActionType.BUY_BACK, numberOfShares, exchangeAddress, currency, price, address(0), maxOrders);
-    }
-
-    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256) {
+    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
         verifyAvailable(asset, assetAmount);
 
-        return initiateCorporateAction(ActionType.ASK, maxOrders, exchangeAddress, asset, assetAmount, currency, currencyAmount);
+        return initiateCorporateAction(ActionType.ASK, maxOrders, exchangeAddress, asset, assetAmount, currency, price);
     }
 
-    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) external returns (uint256) {
-        verifyAvailable(currency, currencyAmount);
+    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
+        verifyAvailable(currency, assetAmount*price);
 
-        return initiateCorporateAction(ActionType.BID, maxOrders, exchangeAddress, asset, assetAmount, currency, currencyAmount);
+        return initiateCorporateAction(ActionType.BID, maxOrders, exchangeAddress, asset, assetAmount, currency, price);
     }
 
 
@@ -277,7 +265,7 @@ abstract contract CorporateAction is Proposals {
 
         bool isFullyExecuted = true;
         if (isApproved(voteResult)) {
-            if (decisionType < ActionType.RAISE_FUNDS) {
+            if (decisionType < ActionType.ASK) {
                 if (decisionType < ActionType.WITHDRAW_FUNDS) {
                     if (decisionType == ActionType.ISSUE_SHARES) {
                         _issueShares(numberOfShares);
@@ -292,18 +280,10 @@ abstract contract CorporateAction is Proposals {
                     }
                 }
             } else if (decisionType < ActionType.REVERSE_SPLIT) {
-                if (decisionType < ActionType.ASK) {
-                    if (decisionType == ActionType.RAISE_FUNDS) {
-                        _raiseFunds(exchanges, exchangeAddress, numberOfShares, currency, amount, optionalAmount);
-                    } else  { //decisionType == ActionType.BUY_BACK
-                        _buyBack(exchangeAddress, numberOfShares, currency, amount, optionalAmount);
-                    }
-                } else {
-                    if (decisionType == ActionType.ASK) {
-                        _ask(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
-                    } else  { //decisionType == ActionType.BID
-                        _bid(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
-                    }
+                if (decisionType == ActionType.ASK) {
+                    _ask(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                } else  { //decisionType == ActionType.BID
+                    _bid(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                 }
             } else if ((decisionType == ActionType.DISTRIBUTE_DIVIDEND) && (optionalCurrency != address(0))) { //we need to trigger ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, which requires another vote to either approve or reject the optional dividend
                 pendingRequestId = 0; //otherwise we cannot start the optional dividend corporate action
@@ -343,32 +323,18 @@ abstract contract CorporateAction is Proposals {
         IExchange(exchangeAddress).cancel(orderId);
     }
 
-    function _raiseFunds(mapping(address => PackInfo) storage _exchanges, address exchangeAddress, uint256 numberOfShares, address currency, uint256 amount, uint256 maxOrders) private {
-        IExchange exchange = IExchange(exchangeAddress);
-        increaseAllowance(exchangeAddress, numberOfShares); //only send to safe exchanges, the number of shares are removed from treasury
-        PackableAddresses.register(_exchanges[address(this)], exchangeAddress);
-        exchange.ask(address(this), numberOfShares, currency, numberOfShares*amount, maxOrders);
-    }
-
-    function _buyBack(address exchangeAddress, uint256 numberOfShares, address currency, uint256 amount, uint256 maxOrders) private {
-        IExchange exchange = IExchange(exchangeAddress);
-        IERC20(currency).safeIncreaseAllowance(exchangeAddress, numberOfShares*amount); //only send to safe exchanges, the total price is locked up
-        PackableAddresses.register(exchanges[currency], exchangeAddress);
-        exchange.bid(currency, numberOfShares*amount, address(this), numberOfShares, maxOrders);
-    }
-
-    function _ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) private {
+    function _ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) private {
         IExchange exchange = IExchange(exchangeAddress);
         IERC20(asset).safeIncreaseAllowance(exchangeAddress, assetAmount); //only send to safe exchanges, the total price is locked up
         PackableAddresses.register(exchanges[asset], exchangeAddress);
-        exchange.ask(asset, assetAmount, currency, currencyAmount, maxOrders);
+        exchange.ask(asset, assetAmount, currency, price, maxOrders);
     }
 
-    function _bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 currencyAmount, uint256 maxOrders) private {
+    function _bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) private {
         IExchange exchange = IExchange(exchangeAddress);
-        IERC20(currency).safeIncreaseAllowance(exchangeAddress, currencyAmount); //only send to safe exchanges, the total price is locked up
+        IERC20(currency).safeIncreaseAllowance(exchangeAddress, assetAmount*price); //only send to safe exchanges, the total price is locked up
         PackableAddresses.register(exchanges[currency], exchangeAddress);
-        exchange.bid(asset, assetAmount, currency, currencyAmount, maxOrders);
+        exchange.bid(asset, assetAmount, currency, price, maxOrders);
     }
 
 
