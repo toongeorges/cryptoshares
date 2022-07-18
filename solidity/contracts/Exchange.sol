@@ -45,6 +45,7 @@ struct OrderHead {
     uint256 next;
 }
 
+error StrictlyPositiveAssetAmountRequired();
 error FractionalPriceNotSupported(uint256 assetAmount, uint256 currencyAmount, uint256 price, uint256 fractionalPrice);
 
 contract Exchange is IExchange {
@@ -90,6 +91,9 @@ contract Exchange is IExchange {
 
     //will execute up to maxOrders orders where assets are sold for the currency at a price greater than or equal to the price given
     function ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
+        if (assetAmount == 0) { //do not allow fake orders
+            revert StrictlyPositiveAssetAmountRequired();
+        }
         lockUp(msg.sender, asset, assetAmount);
         (uint256 id, Order storage order) = createOrder(OrderType.BID, asset, assetAmount, currency, price);
         uint256 remaining = matchAskOrder(id, order, asset, currency, price, assetAmount, maxOrders);
@@ -100,6 +104,9 @@ contract Exchange is IExchange {
 
     //will execute up to maxOrders orders where assets are bought for the currency at a price less than or equal to the price given
     function bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
+        if (assetAmount == 0) { //do not allow fake orders
+            revert StrictlyPositiveAssetAmountRequired();
+        }
         lockUp(msg.sender, currency, assetAmount*price);
         (uint256 id, Order storage order) = createOrder(OrderType.BID, asset, assetAmount, currency, price);
         uint256 remaining = matchBidOrder(id, order, asset, currency, price, assetAmount, maxOrders);
