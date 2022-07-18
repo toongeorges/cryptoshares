@@ -46,9 +46,6 @@ struct OrderHead {
     uint256 next;
 }
 
-error StrictlyPositiveAssetAmountRequired();
-error CannotCancel();
-
 contract Exchange is IExchange {
     using SafeERC20 for IERC20;
 

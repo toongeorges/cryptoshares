@@ -3,7 +3,8 @@
 pragma solidity ^0.8.9;
 
 error DoNotAcceptEtherPayments();
-error InsufficientAllowance();
+error StrictlyPositiveAssetAmountRequired();
+error CannotCancel();
 
 interface IExchange {
     //tokens that are sold have to be locked up in the exchange before trade.  These tokens are released either on execution of the order or when the order is cancelled.
