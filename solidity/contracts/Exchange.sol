@@ -142,15 +142,14 @@ contract Exchange is IExchange {
             OrderHead storage bids = initialBidOrderHeads[asset][currency];
             uint256 matchedPrice = bids.price;
             uint256 buyId = bids.firstOrder;
-            Order storage buyOrder = orders[buyId];
 
             //while bid orders are willing to pay at least the ask price
             while ((buyId > 0) && (maxOrders > 0) && (remaining > 0) && (price <= matchedPrice)) {
+                Order storage buyOrder = orders[buyId];
                 (remaining, bids) = singleAskTrade(bids, sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, remaining);
                 maxOrders--;
                 matchedPrice = bids.price;
                 buyId = bids.firstOrder;
-                buyOrder = orders[buyId];
             }
         }
 
@@ -245,8 +244,57 @@ contract Exchange is IExchange {
         }
     }
 
-    function matchBidOrder(uint256 orderId, Order storage order, address asset, address currency, uint256 price, uint256 remaining, uint maxOrders) internal returns (uint256) {
+    function matchBidOrder(uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 price, uint256 remaining, uint maxOrders) internal returns (uint256) {
+        if (maxOrders > 0) {
+            OrderHead storage asks = initialAskOrderHeads[asset][currency];
+            uint256 matchedPrice = asks.price;
+            uint256 sellId = asks.firstOrder;
+
+            //while bid orders are willing to pay at least the ask price
+            while ((sellId > 0) && (maxOrders > 0) && (remaining > 0) && (price >= matchedPrice)) {
+                Order storage sellOrder = orders[sellId];
+                (remaining, asks) = singleBidTrade(asks, sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, remaining);
+                maxOrders--;
+                matchedPrice = asks.price;
+                sellId = asks.firstOrder;
+            }
+        }
+
         return remaining;
+    }
+
+    function singleBidTrade(OrderHead storage asks, uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 matchedPrice, uint256 remaining) internal returns (uint256, OrderHead storage) {
+        uint256 sellOrderRemaining = sellOrder.remaining;
+        if (sellOrderRemaining > remaining) {
+            trade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, remaining);
+
+            markOrderExecuted(buyId, buyOrder);
+
+            asks.remaining -= remaining;
+
+            return (0, asks);
+        } else if (sellOrderRemaining == remaining) {
+            trade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, remaining);
+
+            markOrderExecuted(sellId, sellOrder);
+            markOrderExecuted(buyId, buyOrder);
+
+            asks.remaining -= remaining;
+
+            asks = popAskOrder(asks, sellOrder, asset, currency);
+
+            return (0, asks);
+        } else {
+            trade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, sellOrderRemaining);
+
+            markOrderExecuted(sellId, sellOrder);
+
+            asks.remaining -= sellOrderRemaining;
+
+            asks = popAskOrder(asks, sellOrder, asset, currency);
+
+            return ((remaining - sellOrderRemaining), asks);
+        }
     }
 
     function insertBidOrder(uint256 orderId, Order storage order, address asset, address currency, uint256 price, uint256 remaining) internal {
@@ -258,7 +306,7 @@ contract Exchange is IExchange {
             } else {
                 uint256 selectedPrice = selected.price;
                 if (price > selectedPrice) { //the new order has a higher price
-                    OrderHead storage newInitial = initOrderHead(orderId, order,price, remaining);
+                    OrderHead storage newInitial = initOrderHead(orderId, order, price, remaining);
                     initialBidOrderHeads[asset][currency] = newInitial;
 
                     newInitial.next = selectedId;
@@ -334,6 +382,7 @@ contract Exchange is IExchange {
 
     function markOrderExecuted(uint256 orderId, Order storage order) internal {
         order.status = OrderStatus.EXECUTED;
+
         emit ExecutedOrder(orderId, order.orderType, order.owner, order.asset, order.assetAmount, order.currency, order.price, order.executions.length);
     }
 
