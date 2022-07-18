@@ -24,6 +24,7 @@ struct Order {
     uint256 price;
     uint256 remaining;
     uint256 orderHead;
+    uint256 previous; //the previous order in the order book with the same price, 0 if none
     uint256 next; //the next order in the order book with the same price, 0 if none
     Execution[] executions;
 }
@@ -46,7 +47,7 @@ struct OrderHead {
 }
 
 error StrictlyPositiveAssetAmountRequired();
-error FractionalPriceNotSupported(uint256 assetAmount, uint256 currencyAmount, uint256 price, uint256 fractionalPrice);
+error CannotCancel();
 
 contract Exchange is IExchange {
     using SafeERC20 for IERC20;
@@ -64,13 +65,11 @@ contract Exchange is IExchange {
     event ActiveOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price);
     event Trade(uint256 indexed sellId, uint256 indexed buyId, address indexed asset, uint256 assetAmount, address currency, uint256 price);
     event ExecutedOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price, uint256 numberOfExecutions);
+    event CancelledOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price, uint256 numberOfExecutions);
 
     /*
     address[] public listedTokens; //listed ERC20 tokens
     mapping(address => OrderBook) public orderbook;
-
-    event CancelAsk(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency);
-    event CancelBid(uint256 orderId, address indexed owner, address indexed asset, uint256 amount, address indexed currency);
     */
 
     constructor() {
@@ -116,7 +115,39 @@ contract Exchange is IExchange {
     }
 
     function cancel(uint256 orderId) external virtual override {
-        //TODO return allowances
+        Order storage order = orders[orderId];
+        if ((order.status != OrderStatus.ACTIVE) || (order.owner != msg.sender)) {
+            revert CannotCancel();
+        } else {
+            order.status = OrderStatus.CANCELLED;
+
+            OrderHead storage head = orderHeads[order.orderHead];
+
+            uint256 numberOfOrders = head.numberOfOrders;
+            numberOfOrders--;
+            uint256 remaining = order.remaining;
+
+            head.numberOfOrders = numberOfOrders;
+            head.remaining -= remaining;
+
+            if (order.orderType == OrderType.ASK) {
+                if (numberOfOrders == 0) { //remove order head
+                    removeOrderHead(head, order, setInitialAskOrderHead);
+                } else { //remove order in order head
+                    removeOrderFromHead(head, order);
+                }
+
+                release(msg.sender, order.asset, remaining);
+            } else { //order.orderType == OrderType.BID
+                if (numberOfOrders == 0) { //remove order head
+                    removeOrderHead(head, order, setInitialBidOrderHead);
+                } else { //remove order in order head
+                    removeOrderFromHead(head, order);
+                }
+
+                release(msg.sender, order.currency, order.remaining*order.price);
+            }
+        }
     }
 
 
@@ -124,6 +155,11 @@ contract Exchange is IExchange {
     function lockUp(address owner, address tokenAddress, uint256 amount) internal {
         IERC20(tokenAddress).safeTransferFrom(owner, address(this), amount); //we have to transfer, we cannot be happy with having an allowance only, because the same allowance can be given away multiple times, but the token can be transferred only once
         lockedUpTokens[owner][tokenAddress] += amount; //the remaining amount is returned to the owner on completion or cancellation of an order
+    }
+
+    function release(address owner, address tokenAddress, uint256 amount) internal {
+        lockedUpTokens[owner][tokenAddress] -= amount;
+        IERC20(tokenAddress).safeTransfer(owner, amount);
     }
 
     function createOrder(OrderType orderType, address asset, uint256 assetAmount, address currency, uint256 price) internal returns (uint256, Order storage) {
@@ -214,7 +250,7 @@ contract Exchange is IExchange {
                 } else if (price == selectedPrice) { //the new order has the same price
                     addOrderToEnd(selected, orderId, order, remaining);
                 } else { //ordering == Ordering.GREATER_THAN, the new order has a higher price
-                    uint256 previousId = selectedId;
+                    uint256 previousOrderHeadId = selectedId;
                     selectedId = selected.next;
 
                     while (selectedId != 0) {
@@ -226,7 +262,7 @@ contract Exchange is IExchange {
                             OrderHead storage newOrderHead = initOrderHead(orderId, order, price, remaining);
 
                             previous.next = orderId;
-                            newOrderHead.previous = previousId;
+                            newOrderHead.previous = previousOrderHeadId;
                             newOrderHead.next = selectedId;
                             selected.previous = orderId;
 
@@ -237,7 +273,7 @@ contract Exchange is IExchange {
                             return; //do not initiate a new order head at the end of the list
                         }
 
-                        previousId = selectedId;
+                        previousOrderHeadId = selectedId;
                         selectedId = selected.next;
                     }
 
@@ -245,7 +281,7 @@ contract Exchange is IExchange {
                     OrderHead storage lastOrderHead = initOrderHead(orderId, order, price, remaining);
 
                     selected.next = orderId; //selected has not been updated before exiting the while loop
-                    lastOrderHead.previous = previousId; //previousId has been updated before exiting the while loop
+                    lastOrderHead.previous = previousOrderHeadId; //previousOrderHeadId has been updated before exiting the while loop
                 }
             }
         }
@@ -321,7 +357,7 @@ contract Exchange is IExchange {
                 } else if (price == selectedPrice) { //the new order has the same price
                     addOrderToEnd(selected, orderId, order, remaining);
                 } else { //the new order has a lower price
-                    uint256 previousId = selectedId;
+                    uint256 previousOrderHeadId = selectedId;
                     selectedId = selected.next;
 
                     while (selectedId != 0) {
@@ -333,7 +369,7 @@ contract Exchange is IExchange {
                             OrderHead storage newOrderHead = initOrderHead(orderId, order, price, remaining);
 
                             previous.next = orderId;
-                            newOrderHead.previous = previousId;
+                            newOrderHead.previous = previousOrderHeadId;
                             newOrderHead.next = selectedId;
                             selected.previous = orderId;
 
@@ -344,7 +380,7 @@ contract Exchange is IExchange {
                             return; //do not initiate a new order head at the end of the list
                         }
 
-                        previousId = selectedId;
+                        previousOrderHeadId = selectedId;
                         selectedId = selected.next;
                     }
 
@@ -352,7 +388,7 @@ contract Exchange is IExchange {
                     OrderHead storage lastOrderHead = initOrderHead(orderId, order, price, remaining);
 
                     selected.next = orderId; //selected has not been updated before exiting the while loop
-                    lastOrderHead.previous = previousId; //previousId has been updated before exiting the while loop
+                    lastOrderHead.previous = previousOrderHeadId; //previousOrderHeadId has been updated before exiting the while loop
                 }
             }
         }
@@ -400,11 +436,11 @@ contract Exchange is IExchange {
         head.numberOfOrders = numberOfOrders;
 
         if (numberOfOrders == 0) {
-            OrderHead storage newHead = orderHeads[head.next];
-            newHead.previous = 0;
-            initialAskOrderHeads[asset][currency] = newHead;
+            head = orderHeads[head.next];
+            head.previous = 0;
+            initialAskOrderHeads[asset][currency] = head;
 
-            return newHead;
+            return head;
         } else {
             head.firstOrder = firstOrder.next;
 
@@ -419,11 +455,11 @@ contract Exchange is IExchange {
         head.numberOfOrders = numberOfOrders;
 
         if (numberOfOrders == 0) {
-            OrderHead storage newHead = orderHeads[head.next];
-            newHead.previous = 0;
-            initialBidOrderHeads[asset][currency] = newHead;
+            head = orderHeads[head.next];
+            head.previous = 0;
+            initialBidOrderHeads[asset][currency] = head;
 
-            return newHead;
+            return head;
         } else {
             head.firstOrder = firstOrder.next;
 
@@ -446,12 +482,56 @@ contract Exchange is IExchange {
         return orderHead;
     }
 
+    function removeOrderHead(OrderHead storage orderHead, Order storage order, function(address, address, OrderHead storage) setInitialOrderHead) internal {
+        uint256 previousOrderHeadId = orderHead.previous;
+        uint256 nextOrderHeadId = orderHead.next;
+
+        if (previousOrderHeadId == 0) {
+            orderHead = orderHeads[nextOrderHeadId];
+            orderHead.previous = 0;
+            setInitialOrderHead(order.asset, order.currency, orderHead);
+        } else {
+            orderHeads[previousOrderHeadId].next = nextOrderHeadId;
+
+            if (nextOrderHeadId != 0) {
+                orderHeads[nextOrderHeadId].previous = previousOrderHeadId;
+            }
+        }
+    }
+
+    function setInitialAskOrderHead(address asset, address currency, OrderHead storage orderHead) internal {
+        initialAskOrderHeads[asset][currency] = orderHead;
+    }
+
+    function setInitialBidOrderHead(address asset, address currency, OrderHead storage orderHead) internal {
+        initialBidOrderHeads[asset][currency] = orderHead;
+    }
+
     function addOrderToEnd(OrderHead storage orderHead, uint256 orderId, Order storage order, uint256 remaining) private {
         uint256 secondLast = orderHead.lastOrder;
         orders[secondLast].next = orderId;
         order.orderHead = orderHead.id;
+        order.previous = secondLast;
         orderHead.numberOfOrders++;
         orderHead.lastOrder = orderId;
         orderHead.remaining += remaining;
+    }
+
+    function removeOrderFromHead(OrderHead storage head, Order storage order) internal {
+        uint256 previousOrderId = order.previous;
+        uint256 nextOrderId = order.next;
+
+        //this internal method is only called when there is still another order in the head,
+        //so previousOrderId and nextOrderId cannot be 0 at the same time
+        if (previousOrderId == 0) {
+            head.firstOrder = nextOrderId;
+            orders[nextOrderId].previous = 0;
+        } else if (nextOrderId == 0) {
+            head.lastOrder = previousOrderId;
+            orders[previousOrderId].next = 0;
+        } else {
+            orders[previousOrderId].next = nextOrderId;
+            orders[nextOrderId].previous = previousOrderId;
+        }
     }
 }
