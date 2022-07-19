@@ -35,6 +35,12 @@ struct Execution {
     uint256 amount;
 }
 
+struct OrderBookItem {
+    uint256 price;
+    uint256 numberOfOrders;
+    uint256 remaining;
+}
+
 struct OrderHead {
     uint256 id;
     uint256 price;
@@ -145,6 +151,39 @@ contract Exchange is IExchange {
                 release(msg.sender, order.currency, order.remaining*order.price);
             }
         }
+    }
+
+
+    function getAskOrderBook(address asset, address currency, uint256 depth) external virtual view returns (OrderBookItem[] memory) {
+        return getOrderBook(asset, currency, depth, initialAskOrderHeads[asset][currency]);
+    }
+
+    function getBidOrderBook(address asset, address currency, uint256 depth) external virtual view returns (OrderBookItem[] memory) {
+        return getOrderBook(asset, currency, depth, initialBidOrderHeads[asset][currency]);
+    }
+
+    function getOrderBook(address asset, address currency, uint256 depth, OrderHead storage head) internal view returns (OrderBookItem[] memory) {
+        OrderBookItem[] memory orderBook = new OrderBookItem[](depth);
+        for (uint256 i = 0; i < depth; i++) {
+            orderBook[i] = OrderBookItem({
+                price: head.price,
+                numberOfOrders: head.numberOfOrders,
+                remaining: head.remaining
+            });
+
+            uint256 nextHeadId = head.next;
+            if (nextHeadId == 0) {
+                break;
+            }
+            head = orderHeads[nextHeadId];
+        }
+
+        return orderBook;
+    }
+    
+    function getOrderDetails(uint256 orderId) external virtual view returns (address, OrderType, OrderStatus, address, uint256, address, uint256, uint256, uint256) {
+        Order storage o = orders[orderId];
+        return (o.owner, o.orderType, o.status, o.asset, o.assetAmount, o.currency, o.price, o.remaining, o.executions.length);
     }
 
 
