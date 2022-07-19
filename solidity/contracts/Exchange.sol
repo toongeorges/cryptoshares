@@ -52,12 +52,17 @@ struct OrderHead {
     uint256 next;
 }
 
+struct AddressSet {
+    mapping(address => uint256) index;
+    address[] values;
+}
+
 contract Exchange is IExchange {
     using SafeERC20 for IERC20;
 
     uint256 private constant MAX_LOW_INT = 2**128 - 1;
 
-    mapping(address => mapping(address => uint256)) lockedUpTokens;
+    mapping(address => mapping(address => uint256)) private lockedUpTokens;
 
     Order[] private orders;
 
@@ -65,18 +70,18 @@ contract Exchange is IExchange {
     mapping(address => mapping(address => OrderHead)) private initialBidOrderHeads;
     mapping(uint256 => OrderHead) private orderHeads; //mapping used to retrieve permanent storage for an OrderHead
 
+    mapping(address => uint256) private listedAssetsIndex;
+    address[] private listedAssets; //listed ERC20 tokens
+    mapping(address => AddressSet) private listedCurrenciesByAsset;
+
     event ActiveOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price);
     event Trade(uint256 indexed sellId, uint256 indexed buyId, address indexed asset, uint256 assetAmount, address currency, uint256 price);
     event ExecutedOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price, uint256 numberOfExecutions);
     event CancelledOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price, uint256 numberOfExecutions);
 
-    /*
-    address[] public listedTokens; //listed ERC20 tokens
-    mapping(address => OrderBook) public orderbook;
-    */
-
     constructor() {
         orders.push(); //push an order so there cannot be an order with id == 0, if there is a reference to an order with id == 0, it means there is a reference to no order
+        listedAssets.push(); //push a listedToken so each listed token has an id != 0;
     }
 
     receive() external payable { //used to receive wei when msg.data is empty
@@ -97,7 +102,8 @@ contract Exchange is IExchange {
             revert StrictlyPositiveAssetAmountRequired();
         }
         lockUp(msg.sender, asset, assetAmount);
-        (uint256 id, Order storage order) = createOrder(OrderType.BID, asset, assetAmount, currency, price);
+        listToken(asset, currency);
+        (uint256 id, Order storage order) = createOrder(OrderType.ASK, asset, assetAmount, currency, price);
         uint256 remaining = matchAskOrder(id, order, asset, currency, price, assetAmount, maxOrders);
         insertAskOrder(id, order, asset, currency, price, remaining);
 
@@ -110,6 +116,7 @@ contract Exchange is IExchange {
             revert StrictlyPositiveAssetAmountRequired();
         }
         lockUp(msg.sender, currency, assetAmount*price);
+        listToken(asset, currency);
         (uint256 id, Order storage order) = createOrder(OrderType.BID, asset, assetAmount, currency, price);
         uint256 remaining = matchBidOrder(id, order, asset, currency, price, assetAmount, maxOrders);
         insertBidOrder(id, order, asset, currency, price, remaining);
@@ -186,7 +193,106 @@ contract Exchange is IExchange {
         return (o.owner, o.orderType, o.status, o.asset, o.assetAmount, o.currency, o.price, o.remaining, o.executions.length);
     }
 
+    function getOrderExecutions(uint256 orderId, uint256 start, uint256 end) external virtual view returns (Execution[] memory) {
+        Order storage order = orders[orderId];
+        Execution[] storage executions = order.executions;
+        uint256 maxEnd = executions.length;
+        if (end > maxEnd) {
+            end = maxEnd;
+        }
+        if (start >= end) {
+            return new Execution[](0);
+        } else {
+            uint256 numberOfExecutions = end - start;
+            Execution[] memory returnValue = new Execution[](numberOfExecutions);
+            for (uint256 i = 0; i < numberOfExecutions; i++) {
+                returnValue[i] = executions[start + i];
+            }
+            return returnValue;
+        }
+    }
 
+    function getNumberOfListedAssets() external virtual view returns (uint256) {
+        return listedAssets.length - 1;
+    }
+
+    function isListed(address asset) external virtual view returns (bool) {
+        return (listedAssetsIndex[asset] != 0);
+    }
+
+    function getListedAssets(uint256 start, uint256 end) external virtual view returns (address[] memory) {
+        //the first element of listedAssets == address(0);
+        start++;
+        end++;
+        uint256 maxEnd = listedAssets.length;
+        if (end > maxEnd) {
+            end = maxEnd;
+        }
+        if (start >= end) {
+            return new address[](0);
+        } else {
+            uint256 size = end - start;
+            address[] memory returnValue = new address[](size);
+            for (uint256 i = 0; i < size; i++) {
+                returnValue[i] = listedAssets[start + i];
+            }
+            return returnValue;
+        }
+    }
+
+    function getNumberOfListedCurrencies(address asset) external virtual view returns (uint256) {
+        uint256 size = listedCurrenciesByAsset[asset].values.length;
+        return (size == 0) ? size : size - 1;
+    }
+
+    function isListed(address asset, address currency) external virtual view returns (bool) {
+        return (listedCurrenciesByAsset[asset].index[currency] != 0);
+    }
+
+    function getListedCurrencies(address asset, uint256 start, uint256 end) external virtual view returns (address[] memory) {
+        address[] storage currencies = listedCurrenciesByAsset[asset].values;
+        uint256 maxEnd = currencies.length;
+        if (maxEnd == 0) {
+            return new address[](0);
+        } else {
+            //the first element of currencies == address(0);
+            start++;
+            end++;
+            if (end > maxEnd) {
+                end = maxEnd;
+            }
+            if (start >= end) {
+                return new address[](0);
+            } else {
+                uint256 size = end - start;
+                address[] memory returnValue = new address[](size);
+                for (uint256 i = 0; i < size; i++) {
+                    returnValue[i] = currencies[start + i];
+                }
+                return returnValue;
+            }
+        }
+    }
+
+
+
+    function listToken(address tokenAddress, address currency) internal {
+        uint256 index = listedAssetsIndex[tokenAddress];
+        if (index == 0) { //not listed yet
+            listedAssetsIndex[tokenAddress] = listedAssets.length;
+            listedAssets.push(tokenAddress);
+        }
+        AddressSet storage addressSet = listedCurrenciesByAsset[tokenAddress];
+        mapping(address => uint256) storage listedCurrenciesIndex = addressSet.index;
+        if (listedCurrenciesIndex[currency] == 0) { //the currency has not be listed
+            address[] storage listedCurrencies = addressSet.values;
+            if (listedCurrencies.length == 0) {
+                listedCurrencies.push(); //make sure the index of a listed currency != 0
+            }
+            listedCurrenciesIndex[currency] = listedCurrencies.length;
+            listedCurrencies.push(currency);
+        }
+    }
 
     function lockUp(address owner, address tokenAddress, uint256 amount) internal {
         IERC20(tokenAddress).safeTransferFrom(owner, address(this), amount); //we have to transfer, we cannot be happy with having an allowance only, because the same allowance can be given away multiple times, but the token can be transferred only once
