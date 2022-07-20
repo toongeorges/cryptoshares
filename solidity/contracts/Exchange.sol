@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LGPL-3.0-or-later
 
 pragma solidity ^0.8.9;
 
@@ -57,6 +57,13 @@ struct AddressSet {
     address[] values;
 }
 
+struct ArbitrageData {
+    uint256 remainingCurrencyAmount;
+    uint256 remainingAssetAmount;
+    uint256 buyOrderCount;
+    uint256 sellOrderCount;
+}
+
 contract Exchange is IExchange {
     using SafeERC20 for IERC20;
 
@@ -100,6 +107,8 @@ contract Exchange is IExchange {
     function ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         if (assetAmount == 0) { //do not allow fake orders
             revert StrictlyPositiveAssetAmountRequired();
+        } else if (price == 0) {
+            revert StrictlyPositivePriceRequired(); //avoid division by 0 in arbitrage functions
         }
         lockUp(msg.sender, asset, assetAmount);
         listToken(asset, currency);
@@ -114,6 +123,8 @@ contract Exchange is IExchange {
     function bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         if (assetAmount == 0) { //do not allow fake orders
             revert StrictlyPositiveAssetAmountRequired();
+        } else if (price == 0) {
+            revert StrictlyPositivePriceRequired(); //avoid division by 0 in arbitrage functions
         }
         lockUp(msg.sender, currency, assetAmount*price);
         listToken(asset, currency);
@@ -272,6 +283,119 @@ contract Exchange is IExchange {
                 return returnValue;
             }
         }
+    }
+
+    function getSellData(address asset, address currency, uint256 assetAmount, uint256 maxOrders) public virtual view returns (uint256, uint256, uint256) {
+        uint256 soldTotal = 0;
+        uint256 orderCount = 0;
+        OrderHead storage bids = initialBidOrderHeads[asset][currency];
+        while ((bids.id != 0) && (orderCount < maxOrders)) {
+            uint256 price = bids.price;
+            uint256 remaining = bids.remaining;
+            uint256 numberOfOrders = bids.numberOfOrders;
+            if ((remaining <= assetAmount) && (orderCount < maxOrders)) {
+                soldTotal += remaining*price;
+                assetAmount -= remaining;
+                orderCount += numberOfOrders;
+                bids = orderHeads[bids.next];
+            } else {
+                Order storage order = orders[bids.firstOrder];
+                remaining = order.remaining;
+                while ((remaining <= assetAmount) && (orderCount < maxOrders)) {
+                    soldTotal += remaining*price;
+                    assetAmount -= remaining;
+                    orderCount++;
+                    order = orders[order.next];
+                }
+                if (orderCount < maxOrders) { //we could not fulfill a complete order
+                    soldTotal += assetAmount*price;
+                    assetAmount = 0;
+                    orderCount++;
+                }
+                break;
+            }
+        }
+        return (soldTotal, assetAmount, orderCount);
+    }
+
+    function getBuyData(address asset, address currency, uint256 currencyAmount, uint256 maxOrders) public virtual view returns (uint256, uint256, uint256) {
+        uint256 boughtAmount = 0;
+        uint256 orderCount = 0;
+        OrderHead storage asks = initialAskOrderHeads[asset][currency];
+        while ((asks.id != 0) && (orderCount < maxOrders)) {
+            uint256 price = asks.price;
+            uint256 remaining = asks.remaining;
+            uint256 numberOfOrders = asks.numberOfOrders;
+            uint256 total = remaining*price;
+            if ((total <= currencyAmount) && (orderCount < maxOrders)) {
+                boughtAmount += remaining;
+                currencyAmount -= total;
+                orderCount += numberOfOrders;
+                asks = orderHeads[asks.next];
+            } else {
+                Order storage order = orders[asks.firstOrder];
+                remaining = order.remaining;
+                total = remaining*price;
+                while ((total <= currencyAmount) && (orderCount < maxOrders)) {
+                    boughtAmount += remaining;
+                    currencyAmount -= total;
+                    orderCount++;
+                    order = orders[order.next];
+                }
+                if (orderCount < maxOrders) { //we could not fulfill a complete order
+                    boughtAmount += currencyAmount/price;
+                    currencyAmount = currencyAmount%price;
+                    orderCount++;
+                }
+                break;
+            }
+        }
+        return (boughtAmount, currencyAmount, orderCount);
+    }
+
+    function getArbitrageData(address[] memory assets, address[] memory currencies, uint256 currencyAmount, uint256 maxOrders) external virtual view returns (uint256, ArbitrageData[] memory) {
+        if ((assets.length == 0) || (currencies.length == 0)) {
+            revert EmptyArray();
+        } else if (assets.length != currencies.length) {
+            revert ArraysOfDifferentLength();
+        }
+        uint256 maxAmount = IERC20(currencies[0]).balanceOf(address(this));
+        if (currencyAmount > maxAmount) { //cannot spend more in arbitrage than the amount of currency this exchange has
+            currencyAmount = maxAmount;
+        }
+        uint256 assetAmount;
+        uint256 buyOrderCount;
+        uint256 sellOrderCount;
+        uint256 nextCurrencyAmount;
+        ArbitrageData[] memory arbitrageData = new ArbitrageData[](assets.length);
+
+        uint256 lastIndex = assets.length - 1;
+        for (uint i = 0; i < lastIndex; i++) {
+            (assetAmount, currencyAmount, buyOrderCount) = getBuyData(assets[i], currencies[i], currencyAmount, maxOrders);
+            maxOrders -= buyOrderCount;
+            (nextCurrencyAmount, assetAmount, sellOrderCount) = getSellData(assets[i], currencies[i + 1], assetAmount, maxOrders);
+            maxOrders -= sellOrderCount;
+            arbitrageData[i] = ArbitrageData({
+                remainingCurrencyAmount: currencyAmount,
+                remainingAssetAmount: assetAmount,
+                buyOrderCount: buyOrderCount,
+                sellOrderCount: sellOrderCount
+            });
+            currencyAmount = nextCurrencyAmount;
+        }
+
+        (assetAmount, currencyAmount, buyOrderCount) = getBuyData(assets[lastIndex], currencies[lastIndex], currencyAmount, maxOrders);
+        maxOrders -= buyOrderCount;
+        (nextCurrencyAmount, assetAmount, sellOrderCount) = getSellData(assets[lastIndex], currencies[0], assetAmount, maxOrders);
+        maxOrders -= sellOrderCount;
+        arbitrageData[lastIndex] = ArbitrageData({
+            remainingCurrencyAmount: currencyAmount,
+            remainingAssetAmount: assetAmount,
+            buyOrderCount: buyOrderCount,
+            sellOrderCount: sellOrderCount
+        });
+
+        return (nextCurrencyAmount + arbitrageData[0].remainingCurrencyAmount, arbitrageData);
     }
 
 
