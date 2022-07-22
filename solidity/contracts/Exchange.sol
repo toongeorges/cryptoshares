@@ -362,7 +362,7 @@ contract Exchange is IExchange {
         return (boughtAmount, currencyAmount, orderCount);
     }
 
-    function getArbitrageData(address[] memory assets, address[] memory currencies, uint256 currencyAmount) public virtual view returns (uint256, ArbitrageData[] memory) {
+    function getArbitrageData(address[] memory assets, address[] memory currencies, uint256 currencyAmount) public virtual view returns (uint256, uint256, ArbitrageData[] memory) {
         if ((assets.length == 0) || (currencies.length == 0)) {
             revert EmptyArray();
         } else if (assets.length != currencies.length) {
@@ -372,6 +372,7 @@ contract Exchange is IExchange {
         if (currencyAmount > maxAmount) { //cannot spend more in arbitrage than the amount of currency this exchange has
             currencyAmount = maxAmount;
         }
+        uint256 totalOrderCount;
         uint256 assetAmount;
         uint256 buyOrderCount;
         uint256 sellOrderCount;
@@ -388,6 +389,8 @@ contract Exchange is IExchange {
                 buyOrderCount: buyOrderCount,
                 sellOrderCount: sellOrderCount
             });
+            totalOrderCount += buyOrderCount;
+            totalOrderCount += sellOrderCount;
             currencyAmount = nextCurrencyAmount;
         }
 
@@ -400,18 +403,19 @@ contract Exchange is IExchange {
             sellOrderCount: sellOrderCount
         });
 
-        return (nextCurrencyAmount + arbitrageData[0].remainingCurrencyAmount, arbitrageData);
+        return (nextCurrencyAmount + arbitrageData[0].remainingCurrencyAmount, totalOrderCount, arbitrageData);
     }
 
 
 
-    function arbitrage(address[] memory assets, address[] memory currencies, uint256 currencyAmount, uint256 minimumGain) external virtual returns (uint256, ArbitrageData[] memory) {
-        (uint256 roundTripCurrencyAmount, ArbitrageData[] memory arbitrageData) = getArbitrageData(assets, currencies, currencyAmount);
+    function arbitrage(address[] memory assets, address[] memory currencies, uint256 currencyAmount, uint256 minimumGain, uint256 maxOrders) external virtual returns (uint256, ArbitrageData[] memory) {
+        (uint256 roundTripCurrencyAmount, uint256 totalOrderCount, ArbitrageData[] memory arbitrageData) = getArbitrageData(assets, currencies, currencyAmount);
         uint256 refundAmount = roundTripCurrencyAmount - currencyAmount;
         if (refundAmount < minimumGain) {
             revert ArbitrageGainTooSmall(minimumGain, currencyAmount, roundTripCurrencyAmount);
+        } else if (maxOrders < totalOrderCount) {
+            revert OrderCountTooHigh(maxOrders, totalOrderCount);
         } else {
-            uint256 originalCurrencyAmount = currencyAmount;
             uint256 lastIndex = assets.length - 1;
             for (uint256 i = 0; i < lastIndex; i++) {
                 currencyAmount = singleArbitrageStep(assets[i], currencies[i], currencies[i + 1], currencyAmount, arbitrageData[i].buyOrderCount, arbitrageData[i].sellOrderCount);
