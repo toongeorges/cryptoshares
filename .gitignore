@@ -2,3 +2,4 @@ node_modules/
 .vscode
 solidity/artifacts/
 solidity/cache/
+angular/src/assets/mdi.svg
