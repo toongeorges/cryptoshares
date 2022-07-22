@@ -11,7 +11,7 @@ enum OrderType {
 }
 
 enum OrderStatus {
-    ACTIVE, CANCELLED, EXECUTED
+    ACTIVE, CANCELLED, EXECUTED, ARBITRAGED
 }
 
 struct Order {
@@ -64,10 +64,17 @@ struct ArbitrageData {
     uint256 sellOrderCount;
 }
 
+struct ArbitrageContext { //to avoid CompilerError: Stack too deep, try removing local variables.
+    uint256 matchedPrice;
+    uint256 id;
+    uint256 amount;
+    uint256 currencyAmount;
+}
+
 contract Exchange is IExchange {
     using SafeERC20 for IERC20;
 
-    uint256 private constant MAX_LOW_INT = 2**128 - 1;
+    uint256 private constant MAX_INT = 2**256 - 1;
 
     mapping(address => mapping(address => uint256)) private lockedUpTokens;
 
@@ -85,6 +92,7 @@ contract Exchange is IExchange {
     event Trade(uint256 indexed sellId, uint256 indexed buyId, address indexed asset, uint256 assetAmount, address currency, uint256 price);
     event ExecutedOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price, uint256 numberOfExecutions);
     event CancelledOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 price, uint256 numberOfExecutions);
+    event ArbitragedOrder(uint256 orderId, OrderType orderType, address indexed owner, address indexed asset, uint256 assetAmount, address indexed currency, uint256 currencyTotal, uint256 numberOfExecutions);
 
     constructor() {
         orders.push(); //push an order so there cannot be an order with id == 0, if there is a reference to an order with id == 0, it means there is a reference to no order
@@ -170,6 +178,7 @@ contract Exchange is IExchange {
             }
         }
     }
+
 
 
     function getAskOrderBook(address asset, address currency, uint256 depth) external virtual view returns (OrderBookItem[] memory) {
@@ -353,11 +362,11 @@ contract Exchange is IExchange {
         return (boughtAmount, currencyAmount, orderCount);
     }
 
-    function getArbitrageData(address[] memory assets, address[] memory currencies, uint256 currencyAmount, uint256 maxOrders) external virtual view returns (uint256, ArbitrageData[] memory) {
+    function getArbitrageData(address[] memory assets, address[] memory currencies, uint256 currencyAmount) public virtual view returns (uint256, ArbitrageData[] memory) {
         if ((assets.length == 0) || (currencies.length == 0)) {
             revert EmptyArray();
         } else if (assets.length != currencies.length) {
-            revert ArraysOfDifferentLength();
+            revert ArraysOfDifferentLength(assets.length, currencies.length);
         }
         uint256 maxAmount = IERC20(currencies[0]).balanceOf(address(this));
         if (currencyAmount > maxAmount) { //cannot spend more in arbitrage than the amount of currency this exchange has
@@ -371,10 +380,8 @@ contract Exchange is IExchange {
 
         uint256 lastIndex = assets.length - 1;
         for (uint i = 0; i < lastIndex; i++) {
-            (assetAmount, currencyAmount, buyOrderCount) = getBuyData(assets[i], currencies[i], currencyAmount, maxOrders);
-            maxOrders -= buyOrderCount;
-            (nextCurrencyAmount, assetAmount, sellOrderCount) = getSellData(assets[i], currencies[i + 1], assetAmount, maxOrders);
-            maxOrders -= sellOrderCount;
+            (assetAmount, currencyAmount, buyOrderCount) = getBuyData(assets[i], currencies[i], currencyAmount, MAX_INT);
+            (nextCurrencyAmount, assetAmount, sellOrderCount) = getSellData(assets[i], currencies[i + 1], assetAmount, MAX_INT);
             arbitrageData[i] = ArbitrageData({
                 remainingCurrencyAmount: currencyAmount,
                 remainingAssetAmount: assetAmount,
@@ -384,10 +391,8 @@ contract Exchange is IExchange {
             currencyAmount = nextCurrencyAmount;
         }
 
-        (assetAmount, currencyAmount, buyOrderCount) = getBuyData(assets[lastIndex], currencies[lastIndex], currencyAmount, maxOrders);
-        maxOrders -= buyOrderCount;
-        (nextCurrencyAmount, assetAmount, sellOrderCount) = getSellData(assets[lastIndex], currencies[0], assetAmount, maxOrders);
-        maxOrders -= sellOrderCount;
+        (assetAmount, currencyAmount, buyOrderCount) = getBuyData(assets[lastIndex], currencies[lastIndex], currencyAmount, MAX_INT);
+        (nextCurrencyAmount, assetAmount, sellOrderCount) = getSellData(assets[lastIndex], currencies[0], assetAmount, MAX_INT);
         arbitrageData[lastIndex] = ArbitrageData({
             remainingCurrencyAmount: currencyAmount,
             remainingAssetAmount: assetAmount,
@@ -396,6 +401,62 @@ contract Exchange is IExchange {
         });
 
         return (nextCurrencyAmount + arbitrageData[0].remainingCurrencyAmount, arbitrageData);
+    }
+
+
+
+    function arbitrage(address[] memory assets, address[] memory currencies, uint256 currencyAmount, uint256 minimumGain) external virtual returns (uint256, ArbitrageData[] memory) {
+        (uint256 roundTripCurrencyAmount, ArbitrageData[] memory arbitrageData) = getArbitrageData(assets, currencies, currencyAmount);
+        uint256 refundAmount = roundTripCurrencyAmount - currencyAmount;
+        if (refundAmount < minimumGain) {
+            revert ArbitrageGainTooSmall(minimumGain, currencyAmount, roundTripCurrencyAmount);
+        } else {
+            uint256 originalCurrencyAmount = currencyAmount;
+            uint256 lastIndex = assets.length - 1;
+            for (uint256 i = 0; i < lastIndex; i++) {
+                currencyAmount = singleArbitrageStep(assets[i], currencies[i], currencies[i + 1], currencyAmount, arbitrageData[i].buyOrderCount, arbitrageData[i].sellOrderCount);
+            }
+
+            singleArbitrageStep(assets[lastIndex], currencies[lastIndex], currencies[0], currencyAmount, arbitrageData[lastIndex].buyOrderCount, arbitrageData[lastIndex].sellOrderCount);
+
+            if (refundAmount > 0) {
+                IERC20(currencies[0]).safeTransfer(msg.sender, refundAmount);
+            }
+
+            refundAmount = arbitrageData[0].remainingAssetAmount;
+            if (refundAmount > 0) {
+                IERC20(assets[0]).safeTransfer(msg.sender, refundAmount);
+            }
+
+            for (uint256 i = 1; i < assets.length; i++) {
+                refundAmount = arbitrageData[i].remainingCurrencyAmount;
+                if (refundAmount > 0) {
+                    IERC20(currencies[i]).safeTransfer(msg.sender, refundAmount);
+                }
+
+                refundAmount = arbitrageData[i].remainingAssetAmount;
+                if (refundAmount > 0) {
+                    IERC20(assets[i]).safeTransfer(msg.sender, refundAmount);
+                }
+            }
+        }
+
+        return (roundTripCurrencyAmount, arbitrageData);
+    }
+
+    function singleArbitrageStep(address asset, address buyCurrency, address sellCurrency, uint256 buyCurrencyAmount, uint256 buyOrderCount, uint256 sellOrderCount) internal returns (uint256) {
+        (uint256 id, Order storage order) = createArbitragedOrder(OrderType.BID, asset, buyCurrency);
+        uint256 currencyTotal = arbitrageBuy(id, order, asset, buyCurrency, buyCurrencyAmount);
+
+        uint256 assetAmount = order.assetAmount;
+        emit ArbitragedOrder(id, OrderType.BID, msg.sender, asset, assetAmount, buyCurrency, currencyTotal, buyOrderCount);
+
+        (id, order) = createArbitragedOrder(OrderType.ASK, asset, sellCurrency);
+        currencyTotal = arbitrageSell(id, order, asset, sellCurrency, assetAmount);
+
+        emit ArbitragedOrder(id, OrderType.ASK, msg.sender, asset, order.assetAmount, sellCurrency, currencyTotal, sellOrderCount);
+
+        return currencyTotal;
     }
 
 
@@ -446,6 +507,19 @@ contract Exchange is IExchange {
         return (id, order);
     }
 
+    function createArbitragedOrder(OrderType orderType, address asset, address currency) internal returns (uint256, Order storage) {
+        uint256 id = orders.length;
+
+        Order storage order = orders.push();
+        order.owner = msg.sender;
+        order.orderType = orderType;
+        order.status = OrderStatus.ARBITRAGED;
+        order.asset = asset;
+        order.currency = currency;
+
+        return (id, order);
+    }
+
     function matchAskOrder(uint256 sellId, Order storage sellOrder, address asset, address currency, uint256 price, uint256 remaining, uint maxOrders) internal returns (uint256) {
         if (maxOrders > 0) {
             OrderHead storage bids = initialBidOrderHeads[asset][currency];
@@ -463,6 +537,27 @@ contract Exchange is IExchange {
         }
 
         return remaining;
+    }
+
+    function arbitrageSell(uint256 sellId, Order storage sellOrder, address asset, address currency, uint256 assetAmount) internal returns (uint256) {
+        OrderHead storage bids = initialBidOrderHeads[asset][currency];
+        ArbitrageContext memory ctx = ArbitrageContext({
+            matchedPrice: bids.price,
+            id: bids.firstOrder,
+            amount: 0,
+            currencyAmount: 0
+        });
+
+        while ((ctx.id > 0) && (assetAmount > 0)) {
+            Order storage buyOrder = orders[ctx.id];
+            (ctx.amount, bids) = singleArbitrageAskTrade(bids, sellId, sellOrder, ctx.id, buyOrder, asset, currency, ctx.matchedPrice, assetAmount);
+            ctx.currencyAmount += ctx.amount*ctx.matchedPrice;
+            assetAmount -= ctx.amount;
+            ctx.matchedPrice = bids.price;
+            ctx.id = bids.firstOrder;
+        }
+
+        return ctx.currencyAmount;
     }
 
     function singleAskTrade(OrderHead storage bids, uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 matchedPrice, uint256 remaining) internal returns (uint256, OrderHead storage) {
@@ -496,6 +591,37 @@ contract Exchange is IExchange {
             bids = popBidOrder(bids, buyOrder, asset, currency);
 
             return ((remaining - buyOrderRemaining), bids);
+        }
+    }
+
+    function singleArbitrageAskTrade(OrderHead storage bids, uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 matchedPrice, uint256 amount) internal returns (uint256, OrderHead storage) {
+        uint256 buyOrderRemaining = buyOrder.remaining;
+        if (buyOrderRemaining > amount) {
+            arbitrageSellTrade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, amount);
+
+            bids.remaining -= amount;
+
+            return (amount, bids);
+        } else if (buyOrderRemaining == amount) {
+            arbitrageSellTrade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, amount);
+
+            markOrderExecuted(buyId, buyOrder);
+
+            bids.remaining -= amount;
+
+            bids = popBidOrder(bids, buyOrder, asset, currency);
+
+            return (amount, bids);
+        } else {
+            arbitrageSellTrade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, buyOrderRemaining);
+
+            markOrderExecuted(buyId, buyOrder);
+
+            bids.remaining -= buyOrderRemaining;
+
+            bids = popBidOrder(bids, buyOrder, asset, currency);
+
+            return (buyOrderRemaining, bids);
         }
     }
 
@@ -559,7 +685,7 @@ contract Exchange is IExchange {
             uint256 matchedPrice = asks.price;
             uint256 sellId = asks.firstOrder;
 
-            //while bid orders are willing to pay at least the ask price
+            //while ask orders are asking at most the bid price
             while ((sellId > 0) && (maxOrders > 0) && (remaining > 0) && (price >= matchedPrice)) {
                 Order storage sellOrder = orders[sellId];
                 (remaining, asks) = singleBidTrade(asks, sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, remaining);
@@ -570,6 +696,24 @@ contract Exchange is IExchange {
         }
 
         return remaining;
+    }
+
+    function arbitrageBuy(uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 currencyAmount) internal returns (uint256) {
+        OrderHead storage asks = initialAskOrderHeads[asset][currency];
+        uint256 matchedPrice = asks.price;
+        uint256 sellId = asks.firstOrder;
+        uint256 remainingCurrencyAmount = 0;
+
+        while ((sellId > 0) && (remainingCurrencyAmount >= matchedPrice)) {
+            Order storage sellOrder = orders[sellId];
+            uint256 amount;
+            (amount, asks) = singleArbitrageBidTrade(asks, sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, remainingCurrencyAmount/matchedPrice);
+            remainingCurrencyAmount -= amount*matchedPrice;
+            matchedPrice = asks.price;
+            sellId = asks.firstOrder;
+        }
+
+        return currencyAmount - remainingCurrencyAmount;
     }
 
     function singleBidTrade(OrderHead storage asks, uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 matchedPrice, uint256 remaining) internal returns (uint256, OrderHead storage) {
@@ -603,6 +747,37 @@ contract Exchange is IExchange {
             asks = popAskOrder(asks, sellOrder, asset, currency);
 
             return ((remaining - sellOrderRemaining), asks);
+        }
+    }
+
+    function singleArbitrageBidTrade(OrderHead storage asks, uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 matchedPrice, uint256 amount) internal returns (uint256, OrderHead storage) {
+        uint256 sellOrderRemaining = sellOrder.remaining;
+        if (sellOrderRemaining > amount) {
+            arbitrageBuyTrade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, amount);
+
+            asks.remaining -= amount;
+
+            return (amount, asks);
+        } else if (sellOrderRemaining == amount) {
+            arbitrageBuyTrade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, amount);
+
+            markOrderExecuted(sellId, sellOrder);
+
+            asks.remaining -= amount;
+
+            asks = popAskOrder(asks, sellOrder, asset, currency);
+
+            return (amount, asks);
+        } else {
+            arbitrageBuyTrade(sellId, sellOrder, buyId, buyOrder, asset, currency, matchedPrice, sellOrderRemaining);
+
+            markOrderExecuted(sellId, sellOrder);
+
+            asks.remaining -= sellOrderRemaining;
+
+            asks = popAskOrder(asks, sellOrder, asset, currency);
+
+            return (sellOrderRemaining, asks);
         }
     }
 
@@ -673,6 +848,52 @@ contract Exchange is IExchange {
         IERC20(currency).safeTransfer(buyer, (maxBuyTotal - actualTotal));
 
         sellOrder.remaining -= amount;
+        sellOrder.executions.push(Execution({
+            matchedId: buyId,
+            price: price,
+            amount: amount
+        }));
+
+        buyOrder.remaining -= amount;
+        buyOrder.executions.push(Execution({
+            matchedId: sellId,
+            price: price,
+            amount: amount
+        }));
+
+        emit Trade(sellId, buyId, asset, amount, currency, price);
+    }
+
+    function arbitrageBuyTrade(uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 price, uint256 amount) internal {
+        address seller = sellOrder.owner;
+
+        lockedUpTokens[seller][asset] -= amount;
+        IERC20(currency).safeTransfer(seller, amount*price);
+
+        sellOrder.remaining -= amount;
+        sellOrder.executions.push(Execution({
+            matchedId: buyId,
+            price: price,
+            amount: amount
+        }));
+
+        buyOrder.assetAmount += amount;
+        buyOrder.executions.push(Execution({
+            matchedId: sellId,
+            price: price,
+            amount: amount
+        }));
+
+        emit Trade(sellId, buyId, asset, amount, currency, price);
+    }
+
+    function arbitrageSellTrade(uint256 sellId, Order storage sellOrder, uint256 buyId, Order storage buyOrder, address asset, address currency, uint256 price, uint256 amount) internal {
+        address buyer = buyOrder.owner;
+
+        lockedUpTokens[buyer][currency] -= amount*price;
+        IERC20(asset).safeTransfer(buyer, amount);
+
+        sellOrder.assetAmount += amount;
         sellOrder.executions.push(Execution({
             matchedId: buyId,
             price: price,

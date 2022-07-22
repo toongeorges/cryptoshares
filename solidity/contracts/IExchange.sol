@@ -7,8 +7,8 @@ error StrictlyPositiveAssetAmountRequired();
 error StrictlyPositivePriceRequired();
 error CannotCancel();
 error EmptyArray();
-error ArraysOfDifferentLength();
-error NoArbitrageGain();
+error ArraysOfDifferentLength(uint256 firstLength, uint256 secondLength);
+error ArbitrageGainTooSmall(uint256 requiredGain, uint256 initialAmount, uint256 roundTripAmount);
 
 interface IExchange {
     //tokens that are sold have to be locked up in the exchange before trade.  These tokens are released either on execution of the order or when the order is cancelled.
