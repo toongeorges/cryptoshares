@@ -7,11 +7,26 @@ import { EthersService } from './services/ethers.service';
   styleUrls: ['./app.component.scss']
 })
 export class AppComponent implements OnInit {
+  links = [
+    {
+      'label': 'Exchange',
+      'route': 'exchange'
+    },
+    {
+      'label': 'Shares',
+      'route': 'shares'
+    },
+    {
+      'label': 'SeedTokens',
+      'route': 'seedtokens'
+    }
+  ];
+  activeLink = this.links[0];
+
   constructor(private ethersService: EthersService) {}
 
   async ngOnInit() {
     await this.ethersService.provider.send("eth_requestAccounts", []);
     console.log("ethers version: " + this.ethersService.version);
-    this.ethersService.provider.getSigner().getAddress().then(console.log);
   }
 }

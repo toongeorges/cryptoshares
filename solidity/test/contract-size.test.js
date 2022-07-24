@@ -6,11 +6,21 @@ const maxContractSize = 24*1024;
 describe("Compiled Smart Contract Size Test", function () {
     it("Should deploy the SeedToken contract", async function () {
         const SeedToken = await ethers.getContractFactory("SeedToken");
-        const seedToken = await SeedToken.deploy("Seed Token", "SEED");
+        const address = await ethers.provider.getSigner().getAddress();
+        const seedToken = await SeedToken.deploy(address, "Seed Token", "SEED");
         await seedToken.deployed();
         expect(seedToken.address).to.exist;
         const size = (seedToken.deployTransaction.data.length - 2)/2; //- 2 to remove the leading 0x, /2 because 2 hexadecimal ciphers = 1 byte
         console.log('    SeedToken contract size: ' + size + ' bytes');
+        expect(size <= maxContractSize).to.be.true;
+    });
+    it("Should deploy the SeedTokenFactory contract", async function () {
+        const SeedTokenFactory = await ethers.getContractFactory("SeedTokenFactory");
+        const seedTokenFactory = await SeedTokenFactory.deploy();
+        await seedTokenFactory.deployed();
+        expect(seedTokenFactory.address).to.exist;
+        const size = (seedTokenFactory.deployTransaction.data.length - 2)/2; //- 2 to remove the leading 0x, /2 because 2 hexadecimal ciphers = 1 byte
+        console.log('    SeedTokenFactory contract size: ' + size + ' bytes');
         expect(size <= maxContractSize).to.be.true;
     });
     it("Should deploy the Exchange contract", async function () {

@@ -2,3 +2,9 @@
 
 html, body { height: 100%; }
 body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+
+//adjust style of mat-table
+.mat-cell {
+ padding: 16px !important;
+ width: 100% !important;
+}

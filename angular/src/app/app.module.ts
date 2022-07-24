@@ -9,10 +9,16 @@ import { MaterialDesignModule } from './material-design.module';
 
 import { MatIconRegistry } from '@angular/material/icon';
 import { DomSanitizer } from '@angular/platform-browser';
+import { SeedtokensComponent } from './page/seedtokens/seedtokens.component';
+import { SharesComponent } from './page/shares/shares.component';
+import { ExchangeComponent } from './page/exchange/exchange.component';
 
 @NgModule({
   declarations: [
-    AppComponent
+    AppComponent,
+    SeedtokensComponent,
+    SharesComponent,
+    ExchangeComponent
   ],
   imports: [
     BrowserModule,
