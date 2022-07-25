@@ -17,7 +17,7 @@ export class AppComponent implements OnInit {
       'route': 'shares'
     },
     {
-      'label': 'SeedTokens',
+      'label': 'Seed Tokens',
       'route': 'seedtokens'
     }
   ];

@@ -56,12 +56,11 @@ async function main() {
     await peso.transfer(metaMaskAddresses[i], ethers.BigNumber.from('10').pow(6 + erc20NumberOfDecimals));
   }
 
-  euro.changeOwner(metaMaskAddresses[0]);
-  dollar.changeOwner(metaMaskAddresses[1]);
-  pound.changeOwner(metaMaskAddresses[2]);
-  yen.changeOwner(metaMaskAddresses[3]);
-  peso.changeOwner(metaMaskAddresses[4]);
-
+  await euro.changeOwner(metaMaskAddresses[0]);
+  await dollar.changeOwner(metaMaskAddresses[1]);
+  await pound.changeOwner(metaMaskAddresses[2]);
+  await yen.changeOwner(metaMaskAddresses[3]);
+  await peso.changeOwner(metaMaskAddresses[4]);
 }
 
 // We recommend this pattern to be able to use async/await everywhere

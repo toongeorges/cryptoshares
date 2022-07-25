@@ -1,10 +1,14 @@
 import { AfterViewInit, Component, OnInit, ViewChild } from '@angular/core';
+import { MatDialog } from '@angular/material/dialog';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatSort } from '@angular/material/sort';
 import { MatTableDataSource } from '@angular/material/table';
 import { ethers } from "ethers";
 import { EthersService } from 'src/app/services/ethers.service';
 import * as seedTokenData from '../../../../../solidity/artifacts/contracts/SeedToken.sol/SeedToken.json';
+import { ChangeOwnerComponent } from './change-owner/change-owner.component';
+import { MintComponent } from './mint/mint.component';
+import { NewTokenComponent } from './new-token/new-token.component';
 
 @Component({
   selector: 'app-seedtokens',
@@ -12,58 +16,153 @@ import * as seedTokenData from '../../../../../solidity/artifacts/contracts/Seed
   styleUrls: ['./seedtokens.component.scss']
 })
 export class SeedtokensComponent implements OnInit, AfterViewInit {
-  private seedTokens: SeedToken[] = [];
+  public displayedColumns: string[] = ['name', 'symbol', 'balance', 'supply', 'mint', 'owner'];
+  public userAddress: string = '';
 
-  public displayedColumns: string[] = ['name', 'symbol', 'amount'];
-  public dataSource = new MatTableDataSource(this.seedTokens);
+  public numberOfTokens: number;
+  public dataSource: MatTableDataSource<SeedToken>;
 
-  private contracts: ethers.Contract[] = [];
+  public contracts: ethers.Contract[];
+
+  private seedTokens: SeedToken[];
 
   @ViewChild(MatPaginator) paginator: MatPaginator;
   @ViewChild(MatSort) sort: MatSort;
 
-  constructor(private ethersService: EthersService) { }
+  constructor(
+    private ethersService: EthersService,
+    private dialog: MatDialog
+  ) {
+    this.init();
+  }
 
-  async ngOnInit() {
-    let numberOfTokens = await this.ethersService.seedTokenFactory['getNumberOfTokens']();
+  init() {
+    this.numberOfTokens = 0;
+    this.seedTokens = [];
+    this.dataSource = new MatTableDataSource(this.seedTokens);
+    this.contracts = [];
+  }
 
-    for (let i = 0; i < numberOfTokens; i++) {
-      let seedTokenAddress = await this.ethersService.seedTokenFactory['tokens'](i);
+  ngOnInit(): void {
+    this.init(); //reinitialize after closing a dialog
 
-      let contract = new ethers.Contract(
-        seedTokenAddress,
-        (seedTokenData as any).default.abi,
-        this.ethersService.provider
-      );
-      this.contracts.push(contract);
+    this.ethersService.provider.getSigner().getAddress().then((userAddress: string) => {
+      this.userAddress = userAddress;
+    });
 
-      let name = await contract['name']();
-      let symbol = await contract['symbol']();
-      let address = await this.ethersService.provider.getSigner().getAddress();
-      let decimals = await contract['decimals']();
-      let amount = await contract['balanceOf'](address)
-      amount = ethers.BigNumber.from(amount).div(ethers.BigNumber.from('10').pow(decimals));
+    this.ethersService.seedTokenFactory['getNumberOfTokens']().then(async (numberOfTokens: number) => {
+      this.numberOfTokens = numberOfTokens;
 
-      this.seedTokens.push({
-        name: name,
-        symbol: symbol,
-        amount: amount
-      });
-
-      this.dataSource = new MatTableDataSource(this.seedTokens);
-      this.dataSource.paginator = this.paginator;
-      this.dataSource.sort = this.sort;
-    }
+      for (let i = 0; i < numberOfTokens; i++) {
+        let seedTokenAddress = await this.ethersService.seedTokenFactory['tokens'](i);
+  
+        let contract = new ethers.Contract(
+          seedTokenAddress,
+          (seedTokenData as any).default.abi,
+          this.ethersService.provider
+        );
+        this.contracts.push(contract);
+  
+        let name = await contract['name']();
+        let symbol = await contract['symbol']();
+        let address = await this.ethersService.provider.getSigner().getAddress();
+        let decimals = await contract['decimals']();
+        let balance = await contract['balanceOf'](address);
+        balance = ethers.BigNumber.from(balance).div(ethers.BigNumber.from('10').pow(decimals));
+        let supply = await contract['totalSupply']();
+        supply = ethers.BigNumber.from(supply).div(ethers.BigNumber.from('10').pow(decimals));
+        let owner = await contract['owner']();
+  
+        this.seedTokens.push({
+          name: name,
+          symbol: symbol,
+          balance: balance,
+          supply: supply,
+          owner: owner
+        });
+  
+        this.dataSource = new MatTableDataSource(this.seedTokens);
+        this.dataSource.paginator = this.paginator;
+        this.dataSource.sort = this.sort;
+      }
+    });
   }
 
   ngAfterViewInit() {
     this.dataSource.paginator = this.paginator;
     this.dataSource.sort = this.sort;
   }
+
+  getProgress(): number {
+    return (this.numberOfTokens == 0) ? 0 : 100*this.seedTokens.length/this.numberOfTokens;
+  }
+
+  applyFilter(event: Event) {
+    const filterValue = (event.target as HTMLInputElement).value;
+    this.dataSource.filter = filterValue.trim().toLowerCase();
+  }
+
+  openNewTokenDialog(): void {
+    this.dialog.open(NewTokenComponent, {
+      data: {
+        name: '',
+        symbol: '',
+        onDialogClose: () => { this.ngOnInit(); }
+      }
+    });
+  }
+
+  openMintDialog(token: ethers.Contract, name: string, symbol: string): void {
+    this.dialog.open(MintComponent, {
+      data: {
+        token: token,
+        name: name,
+        symbol: symbol,
+        amount: '',
+        onDialogClose: () => { this.ngOnInit(); }
+      }
+    });
+  }
+
+  openChangeOwnerDialog(token: ethers.Contract, name: string, symbol: string): void {
+    this.dialog.open(ChangeOwnerComponent, {
+      data: {
+        token: token,
+        name: name,
+        symbol: symbol,
+        newOwner: '',
+        onDialogClose: () => { this.ngOnInit(); }
+      }
+    });
+  }
 }
 
 export interface SeedToken {
   name: string;
   symbol: string;
+  balance: string;
+  supply: string;
+  owner: string;
+}
+
+export interface NewToken {
+  name: string;
+  symbol: string;
+  onDialogClose: any;
+}
+
+export interface MintAmount {
+  token: ethers.Contract;
+  name: string;
+  symbol: string;
   amount: string;
+  onDialogClose: any;
+}
+
+export interface ChangeOwner {
+  token: ethers.Contract;
+  name: string;
+  symbol: string;
+  newOwner: string;
+  onDialogClose: any;
 }

@@ -12,18 +12,28 @@ import { DomSanitizer } from '@angular/platform-browser';
 import { SeedtokensComponent } from './page/seedtokens/seedtokens.component';
 import { SharesComponent } from './page/shares/shares.component';
 import { ExchangeComponent } from './page/exchange/exchange.component';
+import { NewTokenComponent } from './page/seedtokens/new-token/new-token.component';
+import { FormsModule } from '@angular/forms';
+import { ProgressSpinnerOverlayComponent } from './page/progress-spinner-overlay/progress-spinner-overlay.component';
+import { MintComponent } from './page/seedtokens/mint/mint.component';
+import { ChangeOwnerComponent } from './page/seedtokens/change-owner/change-owner.component';
 
 @NgModule({
   declarations: [
     AppComponent,
     SeedtokensComponent,
     SharesComponent,
-    ExchangeComponent
+    ExchangeComponent,
+    NewTokenComponent,
+    ProgressSpinnerOverlayComponent,
+    MintComponent,
+    ChangeOwnerComponent
   ],
   imports: [
     BrowserModule,
     AppRoutingModule,
     BrowserAnimationsModule,
+    FormsModule,
     MaterialDesignModule
   ],
   providers: [],
