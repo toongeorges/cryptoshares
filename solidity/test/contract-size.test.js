@@ -44,4 +44,13 @@ describe("Compiled Smart Contract Size Test", function () {
         console.log('    Share contract size: ' + size + ' bytes');
         expect(size <= maxContractSize).to.be.true;
     });
+    it("Should deploy the ShareFactory contract", async function () {
+        const ShareFactory = await ethers.getContractFactory("ShareFactory");
+        const shareFactory = await ShareFactory.deploy();
+        await shareFactory.deployed();
+        expect(shareFactory.address).to.exist;
+        const size = (shareFactory.deployTransaction.data.length - 2)/2; //- 2 to remove the leading 0x, /2 because 2 hexadecimal ciphers = 1 byte
+        console.log('    ShareFactory contract size: ' + size + ' bytes');
+        expect(size <= maxContractSize).to.be.true;
+    });
 });
