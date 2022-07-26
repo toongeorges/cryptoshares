@@ -5,6 +5,7 @@ pragma solidity ^0.8.9;
 import '@openzeppelin/contracts/token/ERC20/ERC20.sol';
 import 'contracts/IShare.sol';
 import 'contracts/libraries/Voting.sol';
+import 'contracts/IExchange.sol';
 
 abstract contract Proposals is IShare, ERC20 {
     address public owner;
@@ -12,6 +13,8 @@ abstract contract Proposals is IShare, ERC20 {
     mapping(uint16 => DecisionParameters) internal decisionParameters;
     uint256 public pendingRequestId;
     VoteParameters[] private proposals;
+
+    IExchange public exchange;
 
     modifier isOwner() {
         _isOwner(); //putting the code in a fuction reduces the size of the compiled smart contract!
@@ -29,7 +32,16 @@ abstract contract Proposals is IShare, ERC20 {
 
 
 
-    function getOutstandingShareCount() public view virtual override returns (uint256) { //return the number of shares not held by the company
+    function getLockedUpAmount(address tokenAddress) public view virtual override returns (uint256) {
+        return exchange.getLockedUpAmount(tokenAddress);
+    }
+
+    //getOutstandingShareCount() <= getMaxOutstandingShareCount(), the shares that have been locked up in an exchange do not belong to anyone yet
+    function getOutstandingShareCount() public view virtual override returns (uint256) { //return the number of shares held by shareholders
+        return totalSupply() - balanceOf(address(this)) - getLockedUpAmount(address(this));
+    }
+
+    function getMaxOutstandingShareCount() public view virtual override returns (uint256) {
         return totalSupply() - balanceOf(address(this));
     }
 

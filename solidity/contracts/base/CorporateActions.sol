@@ -4,24 +4,10 @@ pragma solidity ^0.8.9;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
-import 'contracts/IExchange.sol';
-import 'contracts/libraries/PackableAddresses.sol';
-import 'contracts/base/Proposals.sol';
+import 'contracts/base/Packable.sol';
 
-struct CorporateActionData { //see the RequestCorporateAction and CorporateAction event in the IShare interface for the meaning of these fields
-    address exchange;
-    uint256 numberOfShares;
-    address currency;
-    uint256 amount;
-    address optionalCurrency;
-    uint256 optionalAmount;
-}
-
-abstract contract CorporateAction is Proposals {
+abstract contract CorporateActions is Packable {
     using SafeERC20 for IERC20;
-
-    PackInfo private shareholders;
-    mapping(address => PackInfo) private exchanges;
 
     mapping(uint256 => CorporateActionData) private corporateActionsData;
 
@@ -93,142 +79,63 @@ abstract contract CorporateAction is Proposals {
 
 
 
-    function getLockedUpAmount(address tokenAddress) public view virtual override returns (uint256) {
-        PackInfo storage info = exchanges[tokenAddress];
-        mapping(uint256 => address) storage exchangeAddresses = info.addresses;
-
-        uint256 lockedUpAmount = 0;
-        uint256 unpackedIndex = info.unpackedIndex;
-        if (unpackedIndex == 0) {
-            for (uint256 i = 1; i < info.length;) {
-                lockedUpAmount += getLockedUpAmount(exchangeAddresses[i], tokenAddress);
-                unchecked { i++; }
-            }
-        } else {
-            for (uint256 i = 1; i < info.packedLength;) {
-                lockedUpAmount += getLockedUpAmount(exchangeAddresses[i], tokenAddress);
-                unchecked { i++; }
-            }
-            for (uint256 i = unpackedIndex; i < info.length;) {
-                lockedUpAmount += getLockedUpAmount(exchangeAddresses[i], tokenAddress);
-                unchecked { i++; }
-            }
-        }
-        return lockedUpAmount;
-    }
-
-    function getLockedUpAmount(address exchangeAddress, address tokenAddress) internal view returns (uint256) {
-        return IExchange(exchangeAddress).getLockedUpAmount(tokenAddress);
-    }
-
-    function getAvailableAmount(address tokenAddress) public view virtual override returns (uint256) {
-        return IERC20(tokenAddress).balanceOf(address(this)) - getLockedUpAmount(tokenAddress);
-    }
-
-    function getTreasuryShareCount() public view virtual override returns (uint256) { //return the number of shares held by the company
-        return balanceOf(address(this)) - getLockedUpAmount(address(this));
-    }
-
-    //getMaxOutstandingShareCount() >= getOutstandingShareCount(), we are also counting the shares that have been locked up in exchanges and may be sold
-    function getMaxOutstandingShareCount() public view virtual override returns (uint256) {
-        return totalSupply() - getTreasuryShareCount();
-    }
-
-
-
-    function getExchangeCount(address tokenAddress) external view virtual override returns (uint256) {
-        return PackableAddresses.getCount(exchanges[tokenAddress]);
-    }
-
-    function getExchangePackSize(address tokenAddress) external view virtual override returns (uint256) {
-        return PackableAddresses.getPackSize(exchanges[tokenAddress]);
-    }
-
-    function packExchanges(address tokenAddress, uint256 amountToPack) external virtual override {
-        PackableAddresses.pack(exchanges[tokenAddress], amountToPack, tokenAddress, isExchangePredicate);
-    }
-
-    function isExchangePredicate(address tokenAddress, address exchange) internal view returns (bool) {
-        return (getLockedUpAmount(exchange, tokenAddress) > 0);
-    }
-
-    function getShareholderCount() public view virtual override returns (uint256) {
-        return PackableAddresses.getCount(shareholders);
-    }
-
-    function getShareholderNumber(address shareholder) external view virtual override returns (uint256) {
-        return shareholders.index[shareholder];
-    }
-
-    function getShareholderPackSize() external view virtual override returns (uint256) {
-        return PackableAddresses.getPackSize(shareholders);
-    }
-
-    function packShareholders(uint256 amountToPack) external virtual override {
-        PackableAddresses.pack(shareholders, amountToPack, address(0), isShareholder);
-    }
-
-    function isShareholder(address, address shareholder) internal view returns (bool) {
-        return balanceOf(shareholder) > 0;
-    }
-
-    function registerShareholder(address shareholder) internal {
-        PackableAddresses.register(shareholders, shareholder);
-    }
-
-
-
-    function getProposedCorporateAction(uint256 id) external view virtual override returns (ActionType, uint256, address, address, uint256, address, uint256) {
+    function getProposedCorporateAction(uint256 id) external view virtual override returns (ActionType, uint256, address, uint256, address, uint256) {
         CorporateActionData storage cA = corporateActionsData[id];
-        return (ActionType(getVoteType(id)), cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
+        return (ActionType(getVoteType(id)), cA.numberOfShares, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
     }
 
     function issueShares(uint256 numberOfShares) external virtual override returns (uint256) {
-        return initiateCorporateAction(ActionType.ISSUE_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+        return initiateCorporateAction(ActionType.ISSUE_SHARES, numberOfShares, address(0), 0, address(0), 0);
     }
 
     function destroyShares(uint256 numberOfShares) external virtual override returns (uint256) {
-        require(getTreasuryShareCount() >= numberOfShares);
+        require(balanceOf(address(this)) >= numberOfShares);
 
-        return initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), address(0), 0, address(0), 0);
+        return initiateCorporateAction(ActionType.DESTROY_SHARES, numberOfShares, address(0), 0, address(0), 0);
     }
 
     function withdrawFunds(address destination, address currency, uint256 amount) external virtual override returns (uint256) {
         verifyAvailable(currency, amount);
 
-        return initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, destination, currency, amount, address(0), 0);
+        return initiateCorporateAction(ActionType.WITHDRAW_FUNDS, 0, currency, amount, destination, 0);
     }
 
-    function cancelOrder(address exchangeAddress, uint256 orderId) external virtual override returns (uint256) {
-        return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, exchangeAddress, address(0), orderId, address(0), 0);
+    function changeExchange(address newExchangeAddress) external virtual override returns (uint256) {
+        require(getTradedTokenCount() == 0); //only allow changing exchange if there are no locked up tokens, cancel orders first if needed
+
+        return initiateCorporateAction(ActionType.CHANGE_EXCHANGE, 0, address(exchange), 0, newExchangeAddress, 0);
     }
 
-    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
+    function ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
         verifyAvailable(asset, assetAmount);
 
-        return initiateCorporateAction(ActionType.ASK, maxOrders, exchangeAddress, asset, assetAmount, currency, price);
+        return initiateCorporateAction(ActionType.ASK, maxOrders, asset, assetAmount, currency, price);
     }
 
-    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
+    function bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
         verifyAvailable(currency, assetAmount*price);
 
-        return initiateCorporateAction(ActionType.BID, maxOrders, exchangeAddress, asset, assetAmount, currency, price);
+        return initiateCorporateAction(ActionType.BID, maxOrders, asset, assetAmount, currency, price);
+    }
+
+    function cancelOrder(uint256 orderId) external virtual override returns (uint256) {
+        return initiateCorporateAction(ActionType.CANCEL_ORDER, 0, address(0), orderId, address(0), 0);
     }
 
 
 
     function startReverseSplit(uint256 reverseSplitToOne, address currency, uint256 amount) external virtual override returns (uint256) {
         require(getLockedUpAmount(address(this)) == 0); //do not start a reverse split if some exchanges may still be selling shares, cancel these orders first
-        verifyAvailable(currency, getOutstandingShareCount()*amount); //possible worst case if everyone owns 1 share, this is not a restriction, we can always distribute a dummy token that has a higher supply than this share and have a bid order for this dummy token on an exchange
+        verifyAvailable(currency, getMaxOutstandingShareCount()*amount); //possible worst case if everyone owns 1 share, this is not a restriction, we can always distribute a dummy token that has a higher supply than this share and have a bid order for this dummy token on an exchange
 
-        return initiateCorporateAction(ActionType.REVERSE_SPLIT, 0, address(0), currency, amount, address(0), reverseSplitToOne);
+        return initiateCorporateAction(ActionType.REVERSE_SPLIT, 0, currency, amount, address(0), reverseSplitToOne);
     }
 
     function startDistributeDividend(address currency, uint256 amount) external virtual override returns (uint256) {
         uint256 maxOutstandingShareCount = getMaxOutstandingShareCount();
         verifyAvailable(currency, maxOutstandingShareCount*amount);
 
-        return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, address(0), 0);
+        return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, currency, amount, address(0), 0);
     }
  
     function startDistributeOptionalDividend(address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) external virtual override returns (uint256) {
@@ -237,13 +144,12 @@ abstract contract CorporateAction is Proposals {
         verifyAvailable(currency, maxOutstandingShareCount*amount);
         verifyAvailable(optionalCurrency, maxOutstandingShareCount*optionalAmount);
 
-        return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, address(0), currency, amount, optionalCurrency, optionalAmount);
+        return initiateCorporateAction(ActionType.DISTRIBUTE_DIVIDEND, maxOutstandingShareCount, currency, amount, optionalCurrency, optionalAmount);
     }
 
-    function initiateCorporateAction(ActionType decisionType, uint256 numberOfShares, address exchangeAddress, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal returns (uint256) {
+    function initiateCorporateAction(ActionType decisionType, uint256 numberOfShares, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount) internal returns (uint256) {
         CorporateActionData storage corporateAction = corporateActionsData[getNextProposalId()]; //lambdas are planned, but not supported yet by Solidity, so initialization has to happen outside the propose method
         corporateAction.numberOfShares = (numberOfShares != 0) ? numberOfShares : getMaxOutstandingShareCount();
-        corporateAction.exchange = exchangeAddress;
         corporateAction.currency = currency;
         corporateAction.amount = amount;
         corporateAction.optionalCurrency = optionalCurrency;
@@ -257,7 +163,6 @@ abstract contract CorporateAction is Proposals {
 
         CorporateActionData storage cA = corporateActionsData[id];
         uint256 numberOfShares = cA.numberOfShares;
-        address exchangeAddress = cA.exchange;
         address currency = cA.currency;
         uint256 amount = cA.amount;
         address optionalCurrency = cA.optionalCurrency;
@@ -274,21 +179,23 @@ abstract contract CorporateAction is Proposals {
                     }
                 } else {
                     if (decisionType == ActionType.WITHDRAW_FUNDS) {
-                        _withdrawFunds(exchangeAddress, currency, amount);
-                    } else { //decisionType == ActionType.CANCEL_ORDER
-                        _cancelOrder(exchangeAddress, amount); //the amount field is used to store the order id since it is of the same type
+                        _withdrawFunds(optionalCurrency, currency, amount);
+                    } else { //decisionType == ActionType.CHANGE_EXCHANGE
+                        _changeExchange(optionalCurrency);
                     }
                 }
             } else if (decisionType < ActionType.REVERSE_SPLIT) {
                 if (decisionType == ActionType.ASK) {
-                    _ask(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                    _ask(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                 } else  { //decisionType == ActionType.BID
-                    _bid(exchangeAddress, currency, amount, optionalCurrency, optionalAmount, numberOfShares);
+                    _bid(currency, amount, optionalCurrency, optionalAmount, numberOfShares);
                 }
+            } else if (decisionType == ActionType.CANCEL_ORDER) {
+                _cancelOrder(amount); //the amount field is used to store the order id since it is of the same type
             } else if ((decisionType == ActionType.DISTRIBUTE_DIVIDEND) && (optionalCurrency != address(0))) { //we need to trigger ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, which requires another vote to either approve or reject the optional dividend
                 pendingRequestId = 0; //otherwise we cannot start the optional dividend corporate action
 
-                initiateCorporateAction(ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, address(0), currency, amount, optionalCurrency, optionalAmount);
+                initiateCorporateAction(ActionType.DISTRIBUTE_OPTIONAL_DIVIDEND, 0, currency, amount, optionalCurrency, optionalAmount);
                 isFullyExecuted = false;
             } else {
                 voteResult = VoteResult.PARTIAL_EXECUTION;
@@ -297,14 +204,14 @@ abstract contract CorporateAction is Proposals {
             }
         }
         
-        emit CorporateAction(id, voteResult, decisionType, numberOfShares, exchangeAddress, currency, amount, optionalCurrency, optionalAmount);
+        emit CorporateAction(id, voteResult, decisionType, numberOfShares, currency, amount, optionalCurrency, optionalAmount);
 
         return isFullyExecuted;
     }
 
     function requestCorporateAction(uint256 id) internal {
         CorporateActionData storage cA = corporateActionsData[id];
-        emit RequestCorporateAction(id, ActionType(getVoteType(id)), cA.numberOfShares, cA.exchange, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
+        emit RequestCorporateAction(id, ActionType(getVoteType(id)), cA.numberOfShares, cA.currency, cA.amount, cA.optionalCurrency, cA.optionalAmount);
     }
 
     function _issueShares(uint256 numberOfShares) private {
@@ -319,22 +226,24 @@ abstract contract CorporateAction is Proposals {
         safeTransfer(IERC20(currency), destination, amount); //we have to transfer, we cannot work with safeIncreaseAllowance, because unlike an exchange, which we can choose, we have no control over how the currency will be spent
     }
 
-    function _cancelOrder(address exchangeAddress, uint256 orderId) private {
-        IExchange(exchangeAddress).cancel(orderId);
+    function _changeExchange(address newExchangeAddress) private {
+        exchange = IExchange(newExchangeAddress);        
     }
 
-    function _ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) private {
-        IExchange exchange = IExchange(exchangeAddress);
-        IERC20(asset).safeIncreaseAllowance(exchangeAddress, assetAmount); //only send to safe exchanges, the total price is locked up
-        PackableAddresses.register(exchanges[asset], exchangeAddress);
+    function _ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) private {
+        IERC20(asset).safeIncreaseAllowance(address(exchange), assetAmount); //only send to safe exchanges, the total price is locked up
+        registerTradedToken(asset);
         exchange.ask(asset, assetAmount, currency, price, maxOrders);
     }
 
-    function _bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) private {
-        IExchange exchange = IExchange(exchangeAddress);
-        IERC20(currency).safeIncreaseAllowance(exchangeAddress, assetAmount*price); //only send to safe exchanges, the total price is locked up
-        PackableAddresses.register(exchanges[currency], exchangeAddress);
+    function _bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) private {
+        IERC20(currency).safeIncreaseAllowance(address(exchange), assetAmount*price); //only send to safe exchanges, the total price is locked up
+        registerTradedToken(currency);
         exchange.bid(asset, assetAmount, currency, price, maxOrders);
+    }
+
+    function _cancelOrder(uint256 orderId) private {
+        exchange.cancel(orderId);
     }
 
 
@@ -391,7 +300,7 @@ abstract contract CorporateAction is Proposals {
                     if (shareholdersLeft == 0) {
                         vP.result = VoteResult.APPROVED;
 
-                        emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, address(0), currencyAddress, amountPerShare, optionalCurrencyAddress, optionalAmount);
+                        emit CorporateAction(id, VoteResult.APPROVED, decisionType, cA.numberOfShares, currencyAddress, amountPerShare, optionalCurrencyAddress, optionalAmount);
 
                         pendingRequestId = 0;
                     }
@@ -472,7 +381,7 @@ abstract contract CorporateAction is Proposals {
 
 
     function verifyAvailable(address currency, uint256 amount) internal view {
-        require(getAvailableAmount(currency) >= amount);
+        require(IERC20(currency).balanceOf(address(this)) >= amount);
     }
 
     function safeTransfer(IERC20 token, address destination, uint256 amount) internal { //reduces the size of the compiled smart contract if this is wrapped in a function

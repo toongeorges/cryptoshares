@@ -5,11 +5,13 @@ pragma solidity ^0.8.9;
 import 'contracts/IShare.sol';
 import 'contracts/base/ChangeOwner.sol';
 import 'contracts/base/ChangeDecisionParameters.sol';
-import 'contracts/base/CorporateAction.sol';
+import 'contracts/base/CorporateActions.sol';
 import 'contracts/base/ExternalProposal.sol';
 
-contract Share is IShare, ChangeOwner, ChangeDecisionParameters, CorporateAction, ExternalProposal {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+contract Share is IShare, ChangeOwner, ChangeDecisionParameters, CorporateActions, ExternalProposal {
+    constructor(string memory name, string memory symbol, address exchangeAddress) ERC20(name, symbol) {
+        exchange = IExchange(exchangeAddress);
+    }
 
 
 

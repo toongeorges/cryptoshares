@@ -5,13 +5,21 @@ pragma solidity ^0.8.9;
 import 'contracts/libraries/Voting.sol';
 
 enum ActionType {
-    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, WITHDRAW_FUNDS, CANCEL_ORDER, ASK, BID, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
+    DEFAULT, CHANGE_OWNER, CHANGE_DECISION_PARAMETERS, ISSUE_SHARES, DESTROY_SHARES, WITHDRAW_FUNDS, CHANGE_EXCHANGE, ASK, BID, CANCEL_ORDER, REVERSE_SPLIT, DISTRIBUTE_DIVIDEND, DISTRIBUTE_OPTIONAL_DIVIDEND, EXTERNAL
 }
 
 error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
 error CannotFinish();
+
+struct CorporateActionData {
+    uint256 numberOfShares;
+    address currency;
+    uint256 amount;
+    address optionalCurrency;
+    uint256 optionalAmount;
+}
 
 interface IShare {
     //external proposals
@@ -31,7 +39,6 @@ interface IShare {
     
       for ISSUE_SHARES and DESTROY_SHARES:
       numberOfShares: the number of shares to be issued or destroyed
-      exchange: not applicable
       currency: not applicable
       amount: not applicable
       optionalCurrency: not applicable
@@ -39,31 +46,34 @@ interface IShare {
 
       for WITHDRAW_FUNDS:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
-      exchange: the account the funds have to be transferred to
       currency: the currency that needs to be transferred
       amount: the amount of currency that needs to be transferred
-      optionalCurrency: not applicable
+      optionalCurrency: the account the funds have to be transferred to
       optionalAmount: not applicable
 
-      for CANCEL_ORDER:
+      for CHANGE_EXCHANGE:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
-      exchange: the exchange on which the ask or bid order needs to be canceled
-      currency: not applicable
-      amount: the id of the order that needs to be canceled
-      optionalCurrency: not applicable
+      currency: the old exchange address
+      amount: not applicable
+      optionalCurrency: the new exchange address
       optionalAmount: not applicable
 
       for ASK and BID:
       numberOfShares: the maximum amount of orders executed on the exchange
-      exchange: the exchange on which the ask or bid order will be placed
       currency: the asset that is sold or bought (could be the own stock)
       amount: the amount of the asset to be sold or bought
       optionalCurrency: the currency in which the asset is sold or bought
       optionalAmount: for ASK, the minimum price to receive for selling an asset, for BID, the maximum price for buying an asset
 
+      for CANCEL_ORDER:
+      numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
+      currency: not applicable
+      amount: the id of the order that needs to be canceled
+      optionalCurrency: not applicable
+      optionalAmount: not applicable
+
       for REVERSE_SPLIT:
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
-      exchange: not applicable
       currency: the currency for which 1 fractional share that cannot be reverse split will be compensated
       amount: the amount for which 1 fractional share that cannot be reverse split will be compensated
       optionalCurrency: not applicable
@@ -71,7 +81,6 @@ interface IShare {
 
       for DISTRIBUTE_DIVIDEND and DISTRIBUTE_OPTIONAL_DIVIDEND
       numberOfShares: the maximum amount of outstanding shares.  Some shares may still be in treasury but locked up by exchanges, because exchanges may sell them through a pending ask order.
-      exchange: not applicable
       currency: the currency to be distributed
       amount: the amount of the currency to be distributed
       optionalCurrency: only applicable when an optional dividend is distributed, the optional currency to be distributed
@@ -79,22 +88,22 @@ interface IShare {
 
       in case of an optional dividend, first a DISTRIBUTE_DIVIDEND corporate action is initiated and if approved, a DISTRIBUTE_OPTIONAL_DIVIDEND corporate action is initiated where shareholders can decide to opt for the optional dividend instead of the regular dividend
     */
-    event RequestCorporateAction(uint256 indexed id, ActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
-    event CorporateAction(uint256 indexed id, VoteResult indexed voteResult, ActionType indexed decisionType, uint256 numberOfShares, address exchange, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
+    event RequestCorporateAction(uint256 indexed id, ActionType indexed decisionType, uint256 numberOfShares, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
+    event CorporateAction(uint256 indexed id, VoteResult indexed voteResult, ActionType indexed decisionType, uint256 numberOfShares, address currency, uint256 amount, address optionalCurrency, uint256 optionalAmount);
 
     function getLockedUpAmount(address tokenAddress) external view returns (uint256);
-    function getAvailableAmount(address tokenAddress) external view returns (uint256);
-    function getTreasuryShareCount() external view returns (uint256);
     function getOutstandingShareCount() external view returns (uint256);
     function getMaxOutstandingShareCount() external view returns (uint256);
 
-    function getExchangeCount(address tokenAddress) external view returns (uint256);
-    function getExchangePackSize(address tokenAddress) external view returns (uint256);
-    function packExchanges(address tokenAddress, uint256 amountToPack) external;
     function getShareholderCount() external view returns (uint256);
     function getShareholderNumber(address shareholder) external returns (uint256);
     function getShareholderPackSize() external view returns (uint256);
     function packShareholders(uint256 amountToPack) external;
+
+    function getTradedTokenCount() external view returns (uint256);
+    function getTradedTokenNumber(address tokenAddress) external returns (uint256);
+    function getTradedTokenPackSize() external view returns (uint256);
+    function packTradedTokens(uint256 amountToPack) external;
 
     function getNumberOfProposals() external view returns (uint256);
     function getDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
@@ -105,7 +114,7 @@ interface IShare {
 
     function getProposedOwner(uint256 id) external view returns (address);
     function getProposedDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
-    function getProposedCorporateAction(uint256 id) external view returns (ActionType, uint256, address, address, uint256, address, uint256);
+    function getProposedCorporateAction(uint256 id) external view returns (ActionType, uint256, address, uint256, address, uint256);
 
     function makeExternalProposal() external returns (uint256);
     function makeExternalProposal(uint16 subType) external returns (uint256);
@@ -119,10 +128,11 @@ interface IShare {
 
     function issueShares(uint256 numberOfShares) external returns (uint256);
     function destroyShares(uint256 numberOfShares) external returns (uint256);
-    function ask(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function bid(address exchangeAddress, address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
-    function cancelOrder(address exchangeAddress, uint256 orderId) external returns (uint256);
     function withdrawFunds(address destination, address currency, uint256 amount) external returns (uint256);
+    function changeExchange(address newExchangeAddress) external returns (uint256);
+    function ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256);
+    function cancelOrder(uint256 orderId) external returns (uint256);
 
     function startReverseSplit(uint256 reverseSplitToOne, address currency, uint256 amount) external returns (uint256);
     function startDistributeDividend(address currency, uint256 amount) external returns (uint256);

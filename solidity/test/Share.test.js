@@ -13,8 +13,12 @@ describe("Share test suite", function() {
     // Get a list of all accounts
     accounts = await hre.web3.eth.getAccounts();
   
+    const Exchange = await ethers.getContractFactory("Exchange");
+    const exchange = await Exchange.deploy();
+    await exchange.deployed();
+
     const Share = await hre.ethers.getContractFactory("Share");
-    share = await Share.deploy("Cryptoshare", "CTS");
+    share = await Share.deploy("Cryptoshare", "CTS", exchange.address);
     await share.deployed();
   });
 

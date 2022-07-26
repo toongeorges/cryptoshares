@@ -64,7 +64,7 @@ library PackableAddresses {
         }
     }
 
-    function pack(PackInfo storage packInfo, uint256 amountToPack, address context, function(address, address) internal returns (bool) isStillValid) internal {
+    function pack(PackInfo storage packInfo, uint256 amountToPack, function(address) internal returns (bool) isStillValid) internal {
         require(amountToPack > 0);
 
         uint256 maxEnd = packInfo.length;
@@ -90,7 +90,7 @@ library PackableAddresses {
             mapping(uint256 => address) storage addresses = packInfo.addresses;
             for (uint256 i = start; i < end;) {
                 address selected = addresses[i];
-                if (isStillValid(context, selected)) { //only register if the address is still valid
+                if (isStillValid(selected)) { //only register if the address is still valid
                     index[selected] = packedIndex;
                     addresses[packedIndex] = selected;
                     unchecked { packedIndex++; }
