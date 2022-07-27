@@ -107,7 +107,7 @@ contract Exchange is IExchange {
         revert DoNotAcceptEtherPayments(); //as long as Ether is not ERC20 compliant
     }
 
-    function getLockedUpAmount(address erc2OAddress) external view returns (uint256) {
+    function getLockedUpAmount(address erc2OAddress) external view override returns (uint256) {
         return lockedUpTokens[msg.sender][erc2OAddress];
     }
 
@@ -182,14 +182,14 @@ contract Exchange is IExchange {
 
 
     function getAskOrderBook(address asset, address currency, uint256 depth) external virtual view returns (OrderBookItem[] memory) {
-        return getOrderBook(asset, currency, depth, initialAskOrderHeads[asset][currency]);
+        return getOrderBook(depth, initialAskOrderHeads[asset][currency]);
     }
 
     function getBidOrderBook(address asset, address currency, uint256 depth) external virtual view returns (OrderBookItem[] memory) {
-        return getOrderBook(asset, currency, depth, initialBidOrderHeads[asset][currency]);
+        return getOrderBook(depth, initialBidOrderHeads[asset][currency]);
     }
 
-    function getOrderBook(address asset, address currency, uint256 depth, OrderHead storage head) internal view returns (OrderBookItem[] memory) {
+    function getOrderBook(uint256 depth, OrderHead storage head) internal view returns (OrderBookItem[] memory) {
         OrderBookItem[] memory orderBook = new OrderBookItem[](depth);
         for (uint256 i = 0; i < depth; i++) {
             orderBook[i] = OrderBookItem({

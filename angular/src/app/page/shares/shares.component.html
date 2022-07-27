@@ -1,1 +1,60 @@
-<p>shares works!</p>
+<mat-drawer-container class="sidenav-container">
+<mat-drawer #drawer opened mode="side" class="sidenav-drawer">
+<mat-card>
+  <mat-progress-bar *ngIf="getProgress() < 100; else elseBlock" mode="determinate" [value]="getProgress()"></mat-progress-bar>
+  <ng-template #elseBlock>
+    <div class="horizontal">
+      <mat-form-field>
+        <mat-label>Filter</mat-label>
+        <input matInput (keyup)="applyFilter($event)" placeholder="Ex. Cof" #input>
+      </mat-form-field>
+    </div>
+  </ng-template>
+</mat-card>
+<mat-card>
+  <table mat-table [dataSource]="dataSource" matSort>
+
+      <ng-container matColumnDef="name">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> Name </th>
+        <td
+          mat-cell
+          *matCellDef="let element"
+          (click)="selected = element"
+        >
+          {{ (element.name.length > 37) ? (element.name | slice:0:37) + '...' : element.name }}
+        </td>
+      </ng-container>
+    
+      <ng-container matColumnDef="symbol">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header> Symbol </th>
+        <td
+          mat-cell
+          *matCellDef="let element"
+          (click)="selected = element"
+        > {{element.symbol}} </td>
+      </ng-container>
+    
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+  </table>
+  <mat-paginator pageSize="10" [pageSizeOptions]="[10, 20, 50, 100]"></mat-paginator>
+</mat-card>
+</mat-drawer>
+<mat-drawer-content>
+  <div class="menu-toggle">
+  <button mat-icon-button color="primary" aria-label="Close share list">
+    <mat-icon *ngIf="drawer.opened; else openDrawer" svgIcon="arrow-left-bold" (click)="drawer.toggle()"></mat-icon>
+    <ng-template #openDrawer>
+      <mat-icon svgIcon="arrow-right-bold" (click)="drawer.toggle()"></mat-icon>
+    </ng-template>
+  </button>
+  </div>
+  <div class="details">
+  <div *ngIf="!selected; else shareDetails" class="mat-title share-title">No share selected</div>
+  <ng-template #shareDetails>
+    <div class="mat-title share-title">{{ selected.name }}</div>
+  </ng-template>
+  </div>
+</mat-drawer-content>
+</mat-drawer-container>
+

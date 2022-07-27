@@ -9,7 +9,8 @@ import 'contracts/base/CorporateActions.sol';
 import 'contracts/base/ExternalProposal.sol';
 
 contract Share is IShare, ChangeOwner, ChangeDecisionParameters, CorporateActions, ExternalProposal {
-    constructor(string memory name, string memory symbol, address exchangeAddress) ERC20(name, symbol) {
+    constructor(address ownerAddress, string memory name, string memory symbol, address exchangeAddress) ERC20(name, symbol) {
+        owner = ownerAddress;
         exchange = IExchange(exchangeAddress);
     }
 

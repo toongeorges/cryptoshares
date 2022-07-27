@@ -18,7 +18,8 @@ describe("Share test suite", function() {
     await exchange.deployed();
 
     const Share = await hre.ethers.getContractFactory("Share");
-    share = await Share.deploy("Cryptoshare", "CTS", exchange.address);
+    const ownerAddress = await ethers.provider.getSigner().getAddress();
+    share = await Share.deploy(ownerAddress, "Cryptoshare", "CTS", exchange.address);
     await share.deployed();
   });
 

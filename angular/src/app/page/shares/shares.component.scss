@@ -1,0 +1,27 @@
+.sidenav-container {
+  height: calc(100vh - 48px); //the tabs are 48px high
+}
+
+.sidenav-drawer {
+  width: 400px;
+}
+
+.menu-toggle {
+  z-index: 200;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.details {
+  z-index: 100;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% - 32px); //because of a margin of 16px
+  margin: 16px;
+}
+
+.share-title {
+  text-align: center;
+}

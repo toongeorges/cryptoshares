@@ -106,13 +106,13 @@ abstract contract CorporateActions is Packable {
         return initiateCorporateAction(ActionType.CHANGE_EXCHANGE, 0, address(exchange), 0, newExchangeAddress, 0);
     }
 
-    function ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
+    function ask(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         verifyAvailable(asset, assetAmount);
 
         return initiateCorporateAction(ActionType.ASK, maxOrders, asset, assetAmount, currency, price);
     }
 
-    function bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external returns (uint256) {
+    function bid(address asset, uint256 assetAmount, address currency, uint256 price, uint256 maxOrders) external virtual override returns (uint256) {
         verifyAvailable(currency, assetAmount*price);
 
         return initiateCorporateAction(ActionType.BID, maxOrders, asset, assetAmount, currency, price);

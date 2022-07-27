@@ -18,10 +18,8 @@ import { NewTokenComponent } from './new-token/new-token.component';
 export class SeedtokensComponent implements OnInit, AfterViewInit {
   public displayedColumns: string[] = ['name', 'symbol', 'balance', 'supply', 'mint', 'owner'];
   public userAddress: string = '';
-
   public numberOfTokens: number;
   public dataSource: MatTableDataSource<SeedToken>;
-
   public contracts: ethers.Contract[];
 
   private seedTokens: SeedToken[];
@@ -48,9 +46,8 @@ export class SeedtokensComponent implements OnInit, AfterViewInit {
 
     this.ethersService.provider.getSigner().getAddress().then((userAddress: string) => {
       this.userAddress = userAddress;
-    });
-
-    this.ethersService.seedTokenFactory['getNumberOfTokens']().then(async (numberOfTokens: number) => {
+      return this.ethersService.seedTokenFactory['getNumberOfTokens']();
+    }).then(async (numberOfTokens: number) => {
       this.numberOfTokens = numberOfTokens;
 
       for (let i = 0; i < numberOfTokens; i++) {
@@ -65,15 +62,15 @@ export class SeedtokensComponent implements OnInit, AfterViewInit {
   
         let name = await contract['name']();
         let symbol = await contract['symbol']();
-        let address = await this.ethersService.provider.getSigner().getAddress();
         let decimals = await contract['decimals']();
-        let balance = await contract['balanceOf'](address);
+        let balance = await contract['balanceOf'](this.userAddress);
         balance = ethers.BigNumber.from(balance).div(ethers.BigNumber.from('10').pow(decimals));
         let supply = await contract['totalSupply']();
         supply = ethers.BigNumber.from(supply).div(ethers.BigNumber.from('10').pow(decimals));
         let owner = await contract['owner']();
   
         this.seedTokens.push({
+          index: i,
           name: name,
           symbol: symbol,
           balance: balance,
@@ -138,6 +135,7 @@ export class SeedtokensComponent implements OnInit, AfterViewInit {
 }
 
 export interface SeedToken {
+  index: number;
   name: string;
   symbol: string;
   balance: string;

@@ -17,6 +17,7 @@ import { FormsModule } from '@angular/forms';
 import { ProgressSpinnerOverlayComponent } from './page/progress-spinner-overlay/progress-spinner-overlay.component';
 import { MintComponent } from './page/seedtokens/mint/mint.component';
 import { ChangeOwnerComponent } from './page/seedtokens/change-owner/change-owner.component';
+import { HttpClientModule } from '@angular/common/http';
 
 @NgModule({
   declarations: [
@@ -34,6 +35,7 @@ import { ChangeOwnerComponent } from './page/seedtokens/change-owner/change-owne
     AppRoutingModule,
     BrowserAnimationsModule,
     FormsModule,
+    HttpClientModule,
     MaterialDesignModule
   ],
   providers: [],

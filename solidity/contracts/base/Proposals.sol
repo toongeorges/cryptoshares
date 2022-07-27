@@ -26,7 +26,6 @@ abstract contract Proposals is IShare, ERC20 {
     }
 
     constructor() {
-        owner = msg.sender;
         proposals.push(); //make sure that the pendingRequestId for any request > 0
     }
 
@@ -62,7 +61,7 @@ abstract contract Proposals is IShare, ERC20 {
 
 
 
-    function getNumberOfProposals() external view virtual returns (uint256) {
+    function getNumberOfProposals() external view virtual override returns (uint256) {
         return proposals.length - 1;
     }
 
