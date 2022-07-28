@@ -18,6 +18,7 @@ import { ProgressSpinnerOverlayComponent } from './page/progress-spinner-overlay
 import { MintComponent } from './page/seedtokens/mint/mint.component';
 import { ChangeOwnerComponent } from './page/seedtokens/change-owner/change-owner.component';
 import { HttpClientModule } from '@angular/common/http';
+import { NewShareComponent } from './page/shares/new-share/new-share.component';
 
 @NgModule({
   declarations: [
@@ -28,7 +29,8 @@ import { HttpClientModule } from '@angular/common/http';
     NewTokenComponent,
     ProgressSpinnerOverlayComponent,
     MintComponent,
-    ChangeOwnerComponent
+    ChangeOwnerComponent,
+    NewShareComponent
   ],
   imports: [
     BrowserModule,

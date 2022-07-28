@@ -9,8 +9,18 @@ import 'contracts/base/CorporateActions.sol';
 import 'contracts/base/ExternalProposal.sol';
 
 contract Share is IShare, ChangeOwner, ChangeDecisionParameters, CorporateActions, ExternalProposal {
-    constructor(address ownerAddress, string memory name, string memory symbol, address exchangeAddress) ERC20(name, symbol) {
+    constructor(address ownerAddress, string memory name, string memory symbol, uint256 numberOfShares, DecisionParameters memory defaultDecisionParameters, address exchangeAddress) ERC20(name, symbol) {
+        verifyDecisionParameters(
+            defaultDecisionParameters.quorumNumerator,
+            defaultDecisionParameters.quorumDenominator,
+            defaultDecisionParameters.majorityNumerator,
+            defaultDecisionParameters.majorityDenominator
+        );
+
         owner = ownerAddress;
+        _mint(ownerAddress, numberOfShares);
+        registerShareholder(ownerAddress);
+        decisionParameters[0] = defaultDecisionParameters;
         exchange = IExchange(exchangeAddress);
     }
 

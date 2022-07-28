@@ -33,9 +33,7 @@ abstract contract ChangeDecisionParameters is Proposals {
     }
 
     function doChangeDecisionParameters(uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal returns (uint256) {
-        require(quorumDenominator > 0);
-        require(majorityDenominator > 0);
-        require((majorityNumerator << 1) >= majorityDenominator);
+        verifyDecisionParameters(quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
 
         uint256 id = getNextProposalId(); //lambdas are planned, but not supported yet by Solidity, so initialization has to happen outside the propose method
 
@@ -49,6 +47,12 @@ abstract contract ChangeDecisionParameters is Proposals {
         eDP.majorityDenominator = majorityDenominator;
 
         return propose(uint16(ActionType.CHANGE_DECISION_PARAMETERS), executeSetDecisionParameters, requestSetDecisionParameters);
+    }
+
+    function verifyDecisionParameters(uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal pure {
+        if ((quorumDenominator == 0) || (majorityDenominator == 0) || ((majorityNumerator << 1) < majorityDenominator)) {
+            revert InvalidDecisionParameters(quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+        }
     }
 
     function executeSetDecisionParameters(uint256 id, VoteResult voteResult) internal returns (bool) {

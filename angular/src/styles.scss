@@ -5,9 +5,12 @@ html, body { height: 100%; }
 body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
 
 //adjust style of mat-table
+table {
+  width: 100%;
+}
+
 .mat-cell {
   padding: 16px !important;
-  width: 100% !important ;
 }
 
 mat-card {
@@ -43,4 +46,10 @@ mat-form-field {
 /* Handle on hover */
 ::-webkit-scrollbar-thumb:hover {
   background: mat-color(mat-palette($mat-purple), 500);
+}
+
+.horizontal {
+  display: flex;
+  gap: 16px;
+  align-items: center;
 }

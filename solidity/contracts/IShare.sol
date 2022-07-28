@@ -12,6 +12,7 @@ error RequestPending();
 error NoRequestPending();
 error RequestNotResolved();
 error CannotFinish();
+error InvalidDecisionParameters(uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator);
 
 struct CorporateActionData {
     uint256 numberOfShares;
@@ -106,8 +107,8 @@ interface IShare {
     function packTradedTokens(uint256 amountToPack) external;
 
     function getNumberOfProposals() external view returns (uint256);
-    function getDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
-    function getDecisionTimes(uint256 id) external view returns (uint64, uint64, uint64);
+    function getProposalDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
+    function getProposalDecisionTimes(uint256 id) external view returns (uint64, uint64, uint64);
     function getNumberOfVotes(uint256 id) external view returns (uint256);
     function getDetailedVoteResult(uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
     function getVoteResult(uint256 id) external view returns (VoteResult);

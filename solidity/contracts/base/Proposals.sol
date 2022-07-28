@@ -46,15 +46,15 @@ abstract contract Proposals is IShare, ERC20 {
 
 
 
-    function getDecisionParameters(ActionType voteType) external virtual override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getDecisionParameters(ActionType voteType) external view virtual override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
         return doGetDecisionParametersReturnValues(uint16(voteType));
     }
 
-    function getExternalProposalDecisionParameters(uint16 subType) external virtual override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getExternalProposalDecisionParameters(uint16 subType) external view virtual override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
         return doGetDecisionParametersReturnValues(uint16(ActionType.EXTERNAL) + subType);
     }
 
-    function doGetDecisionParametersReturnValues(uint16 voteType) internal returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function doGetDecisionParametersReturnValues(uint16 voteType) internal view returns (uint64, uint64, uint32, uint32, uint32, uint32) {
         DecisionParameters storage dP = doGetDecisionParameters(voteType);
         return (dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
@@ -65,11 +65,11 @@ abstract contract Proposals is IShare, ERC20 {
         return proposals.length - 1;
     }
 
-    function getDecisionParameters(uint256 id) external view virtual override returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getProposalDecisionParameters(uint256 id) external view virtual override returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32) {
         return Voting.getDecisionParameters(getProposal(id));
     }
 
-    function getDecisionTimes(uint256 id) external view virtual override returns (uint64, uint64, uint64) {
+    function getProposalDecisionTimes(uint256 id) external view virtual override returns (uint64, uint64, uint64) {
         return Voting.getDecisionTimes(getProposal(id));
     }
 
@@ -126,30 +126,11 @@ abstract contract Proposals is IShare, ERC20 {
         }
     }
 
-    function doGetDecisionParameters(uint16 voteType) internal returns (DecisionParameters storage) {
-        if (voteType == 0) {
-            return doGetDefaultDecisionParameters();
-        } else {
-            DecisionParameters storage dP = decisionParameters[voteType];
-            return (dP.quorumDenominator == 0) //check if the decisionParameters have been set
-                 ? doGetDefaultDecisionParameters() //decisionParameters have not been initialized, fall back to default decisionParameters
-                 : dP;
-        }
-    }
-
-    function doGetDefaultDecisionParameters() internal returns (DecisionParameters storage) {
-        DecisionParameters storage dP = decisionParameters[0];
-        if (dP.quorumDenominator == 0) { //default decisionParameters have not been initialized, initialize with sensible values
-            dP.decisionTime = 2592000; //30 days
-            dP.executionTime = 604800; //7 days
-            dP.quorumNumerator = 0;
-            dP.quorumDenominator = 1;
-            dP.majorityNumerator = 1;
-            dP.majorityDenominator = 2;
-
-            emit ChangeDecisionParameters(proposals.length, VoteResult.NON_EXISTENT, 0, 2592000, 604800, 0, 1, 1, 2);
-        }
-        return dP;
+    function doGetDecisionParameters(uint16 voteType) internal view returns (DecisionParameters storage) {
+        DecisionParameters storage dP = decisionParameters[voteType];
+        return (dP.quorumDenominator == 0) //check if the decisionParameters have been set
+                ? decisionParameters[0] //decisionParameters have not been initialized, fall back to default decisionParameters
+                : dP;
     }
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {

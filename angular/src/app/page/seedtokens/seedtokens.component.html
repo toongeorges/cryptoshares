@@ -6,7 +6,7 @@
         <mat-label>Filter</mat-label>
         <input matInput (keyup)="applyFilter($event)" placeholder="Ex. GBP" #input>
       </mat-form-field>
-      <button mat-raised-button color="accent" (click)="openNewTokenDialog()">new token</button>
+      <button mat-raised-button color="accent" (click)="openNewTokenDialog()">new</button>
     </div>
   </ng-template>
 </mat-card>
@@ -25,16 +25,16 @@
         <td mat-cell *matCellDef="let element"> {{element.symbol}} </td>
       </ng-container>
     
-      <ng-container matColumnDef="balance">
-        <th mat-header-cell *matHeaderCellDef> Balance </th>
-        <td mat-cell *matCellDef="let element"> {{element.balance}} </td>
-      </ng-container>
-
       <ng-container matColumnDef="supply">
         <th mat-header-cell *matHeaderCellDef> Supply </th>
         <td mat-cell *matCellDef="let element">
           {{element.supply}}
         </td>
+      </ng-container>
+
+      <ng-container matColumnDef="balance">
+        <th mat-header-cell *matHeaderCellDef> Balance </th>
+        <td mat-cell *matCellDef="let element"> {{element.balance}} </td>
       </ng-container>
 
       <ng-container matColumnDef="mint">

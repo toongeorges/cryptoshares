@@ -16,7 +16,7 @@ import { NewTokenComponent } from './new-token/new-token.component';
   styleUrls: ['./seedtokens.component.scss']
 })
 export class SeedtokensComponent implements OnInit, AfterViewInit {
-  public displayedColumns: string[] = ['name', 'symbol', 'balance', 'supply', 'mint', 'owner'];
+  public displayedColumns: string[] = ['name', 'symbol', 'supply', 'balance', 'mint', 'owner'];
   public userAddress: string = '';
   public numberOfTokens: number;
   public dataSource: MatTableDataSource<SeedToken>;
@@ -51,30 +51,30 @@ export class SeedtokensComponent implements OnInit, AfterViewInit {
       this.numberOfTokens = numberOfTokens;
 
       for (let i = 0; i < numberOfTokens; i++) {
-        let seedTokenAddress = await this.ethersService.seedTokenFactory['tokens'](i);
+        const seedTokenAddress = await this.ethersService.seedTokenFactory['tokens'](i);
   
-        let contract = new ethers.Contract(
+        const contract = new ethers.Contract(
           seedTokenAddress,
           (seedTokenData as any).default.abi,
           this.ethersService.provider
         );
         this.contracts.push(contract);
   
-        let name = await contract['name']();
-        let symbol = await contract['symbol']();
-        let decimals = await contract['decimals']();
-        let balance = await contract['balanceOf'](this.userAddress);
-        balance = ethers.BigNumber.from(balance).div(ethers.BigNumber.from('10').pow(decimals));
+        const name = await contract['name']();
+        const symbol = await contract['symbol']();
+        const decimals = await contract['decimals']();
         let supply = await contract['totalSupply']();
         supply = ethers.BigNumber.from(supply).div(ethers.BigNumber.from('10').pow(decimals));
-        let owner = await contract['owner']();
+        let balance = await contract['balanceOf'](this.userAddress);
+        balance = ethers.BigNumber.from(balance).div(ethers.BigNumber.from('10').pow(decimals));
+        const owner = await contract['owner']();
   
         this.seedTokens.push({
           index: i,
           name: name,
           symbol: symbol,
-          balance: balance,
           supply: supply,
+          balance: balance,
           owner: owner
         });
   
@@ -138,8 +138,8 @@ export interface SeedToken {
   index: number;
   name: string;
   symbol: string;
-  balance: string;
   supply: string;
+  balance: string;
   owner: string;
 }
 
