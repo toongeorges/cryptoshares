@@ -6,6 +6,7 @@ import { MatTableDataSource } from '@angular/material/table';
 import { ethers } from "ethers";
 import { EthersService } from 'src/app/services/ethers.service';
 import * as shareData from '../../../../../solidity/artifacts/contracts/Share.sol/Share.json';
+import { ChangeDecisionParametersComponent } from './change-decision-parameters/change-decision-parameters.component';
 import { NewShareComponent } from './new-share/new-share.component';
 
 @Component({
@@ -15,31 +16,24 @@ import { NewShareComponent } from './new-share/new-share.component';
 })
 export class SharesComponent implements OnInit, AfterViewInit {
   public displayedColumns: string[] = ['name', 'symbol'];
+  public dataSource: MatTableDataSource<Share>;
+
   public userAddress: string = '';
   public numberOfShares: number;
-  public dataSource: MatTableDataSource<Share>;
   public contracts: ethers.Contract[];
+
   public selected: Share;
+
   public summaryColumns: string[] = [ 'key', 'value' ];
   public summary: { key: string; value: string; }[] = [];
-  public actions = [
-    'Default',
-    'Change Owner',
-    'Change Decision Parameters',
-    'Issue Shares',
-    'Destroy Shares',
-    'Withdraw Funds',
-    'Change Exchange',
-    'Ask',
-    'Bid',
-    'Cancel Order',
-    'Reverse Split',
-    'Distribute Dividend',
-    'Distribute Optional Dividend',
-    'External Proposal Default'
-  ];
-  public actionColumns: string[] = [ 'name', 'decisionTime', 'executionTime', 'quorum', 'majority' ];
+
+  public pendingRequestId = 0;
+  public voteInformationColumns: string[] = [ 'key', 'value' ];
+  public voteInformation: { key: string; value: string; }[] = [];
+
+  public actionColumns: string[] = [ 'name', 'isDefault', 'decisionTime', 'executionTime', 'quorum', 'majority', 'actions' ];
   public decisionParameters: MatTableDataSource<DecisionParameters>;
+  public isHideDefault = false;
 
   private shares: Share[];
 
@@ -47,7 +41,7 @@ export class SharesComponent implements OnInit, AfterViewInit {
   @ViewChild(MatSort) sort: MatSort;
 
   constructor(
-    private ethersService: EthersService,
+    public ethersService: EthersService,
     private dialog: MatDialog
   ) { }
 
@@ -64,45 +58,60 @@ export class SharesComponent implements OnInit, AfterViewInit {
     this.ethersService.provider.getSigner().getAddress().then((userAddress: string) => {
       this.userAddress = userAddress;
       return this.ethersService.shareFactory['getNumberOfShares']();
-    }).then(async (numberOfShares: number) => {
+    }).then((numberOfShares: number) => {
       this.numberOfShares = numberOfShares;
 
       for (let i = 0; i < numberOfShares; i++) {
-        let shareAddress = await this.ethersService.shareFactory['shares'](i);
-  
-        let contract = new ethers.Contract(
-          shareAddress,
-          (shareData as any).default.abi,
-          this.ethersService.provider
-        );
-        this.contracts.push(contract);
-  
-        const name = await contract['name']();
-        const symbol = await contract['symbol']();
-        const supply = await contract['totalSupply']();
-        const balance = await contract['balanceOf'](this.userAddress);
-        const owner = await contract['owner']();
-        const exchange = await contract['exchange']();
-        const numberOfShareholders = await contract['getShareholderCount']();
-        const numberOfProposals = await contract['getNumberOfProposals']();
-  
-        this.shares.push({
-          index: i,
-          name: name,
-          symbol: symbol,
-          supply: supply,
-          balance: balance,
-          owner: owner,
-          exchange: exchange,
-          numberOfShareholders: numberOfShareholders,
-          numberOfProposals: numberOfProposals
-        });
-  
-        this.dataSource = new MatTableDataSource(this.shares);
-        this.dataSource.paginator = this.paginator;
-        this.dataSource.sort = this.sort;
+        this.pushShare(i);
       }
     });
+  }
+
+  async getShare(i: number): Promise<Share> {
+    let shareAddress = await this.ethersService.shareFactory['shares'](i);
+  
+    let contract = new ethers.Contract(
+      shareAddress,
+      (shareData as any).default.abi,
+      this.ethersService.provider
+    );
+    this.contracts.push(contract);
+
+    const name = await contract['name']();
+    const symbol = await contract['symbol']();
+    const supply = await contract['totalSupply']();
+    const balance = await contract['balanceOf'](this.userAddress);
+    const owner = await contract['owner']();
+    const exchange = await contract['exchange']();
+    const numberOfShareholders = await contract['getShareholderCount']();
+    const numberOfProposals = await contract['getNumberOfProposals']();
+
+    return {
+      index: i,
+      name: name,
+      symbol: symbol,
+      supply: supply,
+      balance: balance,
+      owner: owner,
+      exchange: exchange,
+      numberOfShareholders: numberOfShareholders,
+      numberOfProposals: numberOfProposals
+    };
+  }
+
+  pushShare(i: number) {
+    this.getShare(i).then((share: Share) => {
+      this.shares.push(share);
+
+      this.dataSource = new MatTableDataSource(this.shares);
+      this.dataSource.paginator = this.paginator;
+      this.dataSource.sort = this.sort;
+    });
+  }
+
+  addShare() {
+    this.pushShare(this.numberOfShares);
+    this.numberOfShares++;
   }
 
   ngAfterViewInit() {
@@ -121,6 +130,11 @@ export class SharesComponent implements OnInit, AfterViewInit {
 
   select(share: Share) {
     this.selected = share;
+    this.updateSummary(share);
+    this.updateDecisionParameters();
+  }
+
+  updateSummary(share: Share) {
     this.summary = [];
     this.summary.push({
       key: 'Address',
@@ -154,26 +168,101 @@ export class SharesComponent implements OnInit, AfterViewInit {
       key: '# Proposals',
       value: share.numberOfProposals
     });
-
-    this.updateDecisionParameters(this.selected.index);
   }
 
-  async updateDecisionParameters(selectedIndex: number) {
+  async updateDecisionParameters() {
     let decisionParameters = [];
     
-    const contract = this.contracts[selectedIndex];
-    for (let i = 0; i < this.actions.length; i++) {
+    const contract = this.contracts[this.selected.index];
+
+    this.pendingRequestId = await contract['pendingRequestId']();
+
+    if (this.pendingRequestId != 0) {
+      this.updateVoteInformation(contract);
+    }
+
+    for (let i = 0; i < this.ethersService.shareActions.length; i++) {
       const dP: any[] = await contract['getDecisionParameters'](i);
-      decisionParameters.push({
-        index: i,
-        decisionTime: this.formatSeconds(dP[0]),
-        executionTime: this.formatSeconds(dP[1]),
-        quorum: dP[2] + '/' + dP[3],
-        majority: dP[4] + '/' + dP[5]
-      });
+      if (!this.isHideDefault || !dP[0]) {
+        decisionParameters.push({
+          index: i,
+          isDefault: dP[0],
+          decisionTime: dP[1],
+          executionTime: dP[2],
+          quorumNumerator: dP[3],
+          quorumDenominator: dP[4],
+          majorityNumerator: dP[5],
+          majorityDenominator: dP[6],
+          contract: contract,
+          onDialogClose: null
+        });
+      }
     }
 
     this.decisionParameters = new MatTableDataSource(decisionParameters);
+  }
+
+  updateVoteInformation(contract: ethers.Contract) {
+    let vote: Vote = {
+      voteType: 0,
+      start: new Date(Date.UTC(1970, 0, 1)),
+      decisionEnd: new Date(Date.UTC(1970, 0, 1)),
+      executionEnd: new Date(Date.UTC(1970, 0, 1)),
+      quorumNumerator: '',
+      quorumDenominator: '',
+      majorityNumerator: '',
+      majorityDenominator: '',
+      numberOfVotes: '',
+    };
+
+    contract['getProposalDecisionParameters'](this.pendingRequestId).then((dP: any[]) => {
+      console.dir(dP);
+      vote.voteType = dP[0];
+      vote.quorumNumerator = dP[3];
+      vote.quorumDenominator = dP[4];
+      vote.majorityNumerator = dP[5];
+      vote.majorityDenominator = dP[6];
+      return contract['getProposalDecisionTimes'](this.pendingRequestId);
+    }).then((dT: any[]) => {
+      console.dir(dT);
+      vote.start.setUTCSeconds(dT[0]);
+      vote.decisionEnd.setUTCSeconds(dT[1]);
+      vote.executionEnd.setUTCSeconds(dT[2]);
+      return contract['getNumberOfVotes'](this.pendingRequestId);
+    }).then((numberOfVotes: string) => {
+      console.dir(numberOfVotes);
+      vote.numberOfVotes = numberOfVotes;
+
+      this.voteInformation = [];
+      this.voteInformation.push({
+        key: 'Vote Type',
+        value: this.ethersService.shareActions[vote.voteType]
+      });
+      this.voteInformation.push({
+        key: 'Start Time',
+        value: vote.start.toString()
+      });
+      this.voteInformation.push({
+        key: 'Decision End Time',
+        value: vote.decisionEnd.toString()
+      });
+      this.voteInformation.push({
+        key: 'Execution End Time',
+        value: vote.executionEnd.toString()
+      });
+      this.voteInformation.push({
+        key: 'Quorum',
+        value: vote.quorumNumerator + '/' + vote.quorumDenominator
+      });
+      this.voteInformation.push({
+        key: 'Majority',
+        value: vote.majorityNumerator + '/' + vote.majorityDenominator
+      });
+      this.voteInformation.push({
+        key: '# Votes',
+        value: vote.numberOfVotes
+      });
+    });
   }
 
   formatSeconds(remaining: number): string {
@@ -201,6 +290,15 @@ export class SharesComponent implements OnInit, AfterViewInit {
     return returnValue;
   }
 
+  isValidAction(): boolean {
+    return (this.pendingRequestId == 0) && (this.selected.owner == this.userAddress);
+  }
+
+  toggleShowDefault() {
+    this.isHideDefault = !this.isHideDefault;
+    this.updateDecisionParameters();
+  }
+
   openNewShareDialog(): void {
     this.dialog.open(NewShareComponent, {
       data: {
@@ -214,8 +312,16 @@ export class SharesComponent implements OnInit, AfterViewInit {
         quorumDenominator: '1',
         majorityNumerator: '1',
         majorityDenominator: '2',
-        onDialogClose: () => { this.ngOnInit(); }
+        onDialogClose: () => { this.addShare(); }
       }
+    });
+  }
+
+  openChangeDecisionParametersDialog(dP: DecisionParameters): void {
+    const clone = {... dP};
+    clone.onDialogClose = () => { this.select(this.selected); };
+    this.dialog.open(ChangeDecisionParametersComponent, {
+      data: clone
     });
   }
 }
@@ -248,8 +354,25 @@ export interface NewShare {
 
 export class DecisionParameters {
   index: number;
+  isDefault: boolean;
   decisionTime: string;
   executionTime: string;
-  quorum: string;
-  majority: string;
+  quorumNumerator: string;
+  quorumDenominator: string;
+  majorityNumerator: string;
+  majorityDenominator: string;
+  contract: ethers.Contract;
+  onDialogClose: any;
+}
+
+export class Vote {
+  voteType: number;
+  start: Date;
+  decisionEnd: Date;
+  executionEnd: Date;
+  quorumNumerator: string;
+  quorumDenominator: string;
+  majorityNumerator: string;
+  majorityDenominator: string;
+  numberOfVotes: string;
 }

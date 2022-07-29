@@ -122,10 +122,12 @@ interface IShare {
 
     function changeOwner(address newOwner) external returns (uint256);
 
-    function getDecisionParameters(ActionType voteType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
-    function getExternalProposalDecisionParameters(uint16 subType) external returns (uint64, uint64, uint32, uint32, uint32, uint32);
+    function getDecisionParameters(ActionType voteType) external returns (bool, uint64, uint64, uint32, uint32, uint32, uint32);
+    function getExternalProposalDecisionParameters(uint16 subType) external returns (bool, uint64, uint64, uint32, uint32, uint32, uint32);
     function changeDecisionParameters(ActionType voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external returns (uint256);
+    function setDefaultDecisionParameters(ActionType voteType) external returns (uint256);
     function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external returns (uint256);
+    function setExternalProposalDefaultDecisionParameters(uint16 subType) external returns (uint256);
 
     function issueShares(uint256 numberOfShares) external returns (uint256);
     function destroyShares(uint256 numberOfShares) external returns (uint256);

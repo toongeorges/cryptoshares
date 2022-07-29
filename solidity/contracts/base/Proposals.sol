@@ -46,17 +46,17 @@ abstract contract Proposals is IShare, ERC20 {
 
 
 
-    function getDecisionParameters(ActionType voteType) external view virtual override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getDecisionParameters(ActionType voteType) external view virtual override returns (bool, uint64, uint64, uint32, uint32, uint32, uint32) {
         return doGetDecisionParametersReturnValues(uint16(voteType));
     }
 
-    function getExternalProposalDecisionParameters(uint16 subType) external view virtual override returns (uint64, uint64, uint32, uint32, uint32, uint32) {
+    function getExternalProposalDecisionParameters(uint16 subType) external view virtual override returns (bool, uint64, uint64, uint32, uint32, uint32, uint32) {
         return doGetDecisionParametersReturnValues(uint16(ActionType.EXTERNAL) + subType);
     }
 
-    function doGetDecisionParametersReturnValues(uint16 voteType) internal view returns (uint64, uint64, uint32, uint32, uint32, uint32) {
-        DecisionParameters storage dP = doGetDecisionParameters(voteType);
-        return (dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
+    function doGetDecisionParametersReturnValues(uint16 voteType) internal view returns (bool, uint64, uint64, uint32, uint32, uint32, uint32) {
+        (bool isDefault, DecisionParameters storage dP) = doGetDecisionParameters(voteType);
+        return (isDefault, dP.decisionTime, dP.executionTime, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator);
     }
 
 
@@ -110,7 +110,8 @@ abstract contract Proposals is IShare, ERC20 {
 
             bool isNoOutstandingShares = (getOutstandingShareCount() == 0);
             
-            Voting.init(proposals.push(), voteType, doGetDecisionParameters(voteType), isNoOutstandingShares);
+            (, DecisionParameters storage dP) = doGetDecisionParameters(voteType);
+            Voting.init(proposals.push(), voteType, dP, isNoOutstandingShares);
 
             if (isNoOutstandingShares) {
                 execute(id, proposals[id].result);
@@ -126,11 +127,14 @@ abstract contract Proposals is IShare, ERC20 {
         }
     }
 
-    function doGetDecisionParameters(uint16 voteType) internal view returns (DecisionParameters storage) {
+    function doGetDecisionParameters(uint16 voteType) internal view returns (bool, DecisionParameters storage) {
         DecisionParameters storage dP = decisionParameters[voteType];
-        return (dP.quorumDenominator == 0) //check if the decisionParameters have been set
-                ? decisionParameters[0] //decisionParameters have not been initialized, fall back to default decisionParameters
-                : dP;
+
+        bool isDefault = (dP.quorumDenominator == 0);
+
+        return (isDefault) //check if the decisionParameters have been set
+             ? (isDefault, decisionParameters[0]) //decisionParameters have not been initialized, fall back to default decisionParameters
+             : (isDefault, dP);
     }
 
     function isApproved(VoteResult voteResult) internal pure returns (bool) {

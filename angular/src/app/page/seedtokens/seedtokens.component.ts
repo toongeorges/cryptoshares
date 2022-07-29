@@ -51,38 +51,63 @@ export class SeedtokensComponent implements OnInit, AfterViewInit {
       this.numberOfTokens = numberOfTokens;
 
       for (let i = 0; i < numberOfTokens; i++) {
-        const seedTokenAddress = await this.ethersService.seedTokenFactory['tokens'](i);
-  
-        const contract = new ethers.Contract(
-          seedTokenAddress,
-          (seedTokenData as any).default.abi,
-          this.ethersService.provider
-        );
-        this.contracts.push(contract);
-  
-        const name = await contract['name']();
-        const symbol = await contract['symbol']();
-        const decimals = await contract['decimals']();
-        let supply = await contract['totalSupply']();
-        supply = ethers.BigNumber.from(supply).div(ethers.BigNumber.from('10').pow(decimals));
-        let balance = await contract['balanceOf'](this.userAddress);
-        balance = ethers.BigNumber.from(balance).div(ethers.BigNumber.from('10').pow(decimals));
-        const owner = await contract['owner']();
-  
-        this.seedTokens.push({
-          index: i,
-          name: name,
-          symbol: symbol,
-          supply: supply,
-          balance: balance,
-          owner: owner
-        });
-  
-        this.dataSource = new MatTableDataSource(this.seedTokens);
-        this.dataSource.paginator = this.paginator;
-        this.dataSource.sort = this.sort;
+        await this.pushToken(i);
       }
     });
+  }
+
+  async getToken(i: number): Promise<SeedToken> {
+    const seedTokenAddress = await this.ethersService.seedTokenFactory['tokens'](i);
+
+    const contract = new ethers.Contract(
+      seedTokenAddress,
+      (seedTokenData as any).default.abi,
+      this.ethersService.provider
+    );
+    this.contracts.push(contract);
+
+    const name = await contract['name']();
+    const symbol = await contract['symbol']();
+    const decimals = await contract['decimals']();
+    let supply = await contract['totalSupply']();
+    supply = ethers.BigNumber.from(supply).div(ethers.BigNumber.from('10').pow(decimals));
+    let balance = await contract['balanceOf'](this.userAddress);
+    balance = ethers.BigNumber.from(balance).div(ethers.BigNumber.from('10').pow(decimals));
+    const owner = await contract['owner']();
+
+    return {
+      index: i,
+      name: name,
+      symbol: symbol,
+      supply: supply,
+      balance: balance,
+      owner: owner
+    };
+  }
+
+  pushToken(i: number) {
+    this.getToken(i).then((token: SeedToken) => {
+      this.seedTokens.push(token);
+
+      this.dataSource = new MatTableDataSource(this.seedTokens);
+      this.dataSource.paginator = this.paginator;
+      this.dataSource.sort = this.sort;
+    });
+  }
+
+  refreshToken(i: number) {
+    this.getToken(i).then((token: SeedToken) => {
+      this.seedTokens[i] = token
+
+      this.dataSource = new MatTableDataSource(this.seedTokens);
+      this.dataSource.paginator = this.paginator;
+      this.dataSource.sort = this.sort;
+    });
+  }
+
+  addToken() {
+    this.pushToken(this.numberOfTokens);
+    this.numberOfTokens++;
   }
 
   ngAfterViewInit() {
@@ -104,31 +129,31 @@ export class SeedtokensComponent implements OnInit, AfterViewInit {
       data: {
         name: '',
         symbol: '',
-        onDialogClose: () => { this.ngOnInit(); }
+        onDialogClose: () => { this.addToken(); }
       }
     });
   }
 
-  openMintDialog(token: ethers.Contract, name: string, symbol: string): void {
+  openMintDialog(token: ethers.Contract, name: string, symbol: string, index: number): void {
     this.dialog.open(MintComponent, {
       data: {
         token: token,
         name: name,
         symbol: symbol,
         amount: '',
-        onDialogClose: () => { this.ngOnInit(); }
+        onDialogClose: () => { this.refreshToken(index); }
       }
     });
   }
 
-  openChangeOwnerDialog(token: ethers.Contract, name: string, symbol: string): void {
+  openChangeOwnerDialog(token: ethers.Contract, name: string, symbol: string, index: number): void {
     this.dialog.open(ChangeOwnerComponent, {
       data: {
         token: token,
         name: name,
         symbol: symbol,
         newOwner: '',
-        onDialogClose: () => { this.ngOnInit(); }
+        onDialogClose: () => { this.refreshToken(index); }
       }
     });
   }

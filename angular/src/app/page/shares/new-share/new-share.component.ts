@@ -39,8 +39,9 @@ export class NewShareComponent implements OnInit {
           ethers.BigNumber.from(this.data.majorityDenominator)
         ],
         this.data.exchangeAddress, {
-        gasLimit: 5000000
-      }),
+          gasLimit: 5000000
+        }
+      ),
       this.data.onDialogClose
     );
   }

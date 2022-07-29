@@ -22,6 +22,23 @@ export class EthersService {
   public shareFactoryAddress: string = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0';
   public shareFactory: ethers.Contract;
 
+  public shareActions = [
+    'Default',
+    'Change Owner',
+    'Change Decision Parameters',
+    'Issue Shares',
+    'Destroy Shares',
+    'Withdraw Funds',
+    'Change Exchange',
+    'Ask',
+    'Bid',
+    'Cancel Order',
+    'Reverse Split',
+    'Distribute Dividend',
+    'Distribute Optional Dividend',
+    'External Proposal Default'
+  ];
+
   constructor(private dialog: MatDialog) {
     this.version = ethers.version;
     this.provider = new ethers.providers.Web3Provider((window as any).ethereum);

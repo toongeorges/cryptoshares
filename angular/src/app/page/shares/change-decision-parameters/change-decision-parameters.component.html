@@ -1,0 +1,40 @@
+<div class="mat-body">
+  <h1 mat-dialog-title>Change Decision Parameters</h1>
+  <div mat-dialog-content>
+    <h3>{{ ethersService.shareActions[data.index] }}</h3>
+    <mat-form-field>
+      <mat-label>Default Decision Time (in seconds)</mat-label>
+      <input matInput [(ngModel)]="data.decisionTime">
+    </mat-form-field>
+    <mat-form-field>
+      <mat-label>Default Execution Time (in seconds)</mat-label>
+      <input matInput [(ngModel)]="data.executionTime">
+    </mat-form-field>
+    <div class="horizontal">
+      <mat-form-field>
+        <mat-label>Quorum Numerator</mat-label>
+        <input matInput [(ngModel)]="data.quorumNumerator">
+      </mat-form-field>
+      /
+      <mat-form-field>
+        <mat-label>Quorum Denominator</mat-label>
+        <input matInput [(ngModel)]="data.quorumDenominator">
+      </mat-form-field>
+    </div>
+    <div class="horizontal">
+      <mat-form-field>
+        <mat-label>Majority Numerator</mat-label>
+        <input matInput [(ngModel)]="data.majorityNumerator">
+      </mat-form-field>
+      /
+      <mat-form-field>
+        <mat-label>Majority Denominator</mat-label>
+        <input matInput [(ngModel)]="data.majorityDenominator">
+      </mat-form-field>
+    </div>
+  </div>
+  <div mat-dialog-actions>
+    <button mat-raised-button color="accent" (click)="onChange()">change</button>
+    <button mat-raised-button (click)="onCancel()">cancel</button>
+  </div>
+</div>

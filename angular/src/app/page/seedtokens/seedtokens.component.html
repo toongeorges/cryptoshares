@@ -43,7 +43,7 @@
           <button
             *ngIf="element.owner == userAddress"
             mat-raised-button color="accent"
-            (click)="openMintDialog(contracts[element.index], element.name, element.symbol)"
+            (click)="openMintDialog(contracts[element.index], element.name, element.symbol, element.index)"
           >
             mint
           </button>
@@ -56,7 +56,7 @@
           <button
             *ngIf="element.owner == userAddress; else elseNotOwner"
             mat-raised-button color="accent"
-            (click)="openChangeOwnerDialog(contracts[element.index], element.name, element.symbol)"
+            (click)="openChangeOwnerDialog(contracts[element.index], element.name, element.symbol, element.index)"
           >
             change owner
           </button>

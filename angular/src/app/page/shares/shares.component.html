@@ -54,7 +54,7 @@
   <div *ngIf="!selected; else shareDetails" class="mat-title share-title">No share selected</div>
   <ng-template #shareDetails>
     <div class="mat-title share-title">{{ selected.name }}</div>
-    <mat-accordion multi>
+    <mat-accordion class="headers-align" multi>
       <mat-expansion-panel>
         <mat-expansion-panel-header>
           <mat-panel-title>
@@ -76,17 +76,41 @@
    
           <tr mat-row *matRowDef="let row; columns: summaryColumns;"></tr>
         </table>
-    </mat-expansion-panel>
+      </mat-expansion-panel>
 
-      <mat-expansion-panel disabled>
+      <mat-expansion-panel
+        #expansionPanel
+        [disabled]="pendingRequestId == 0"
+        [expanded]="expansionPanel.expanded && !expansionPanel.disabled"
+      >
         <mat-expansion-panel-header>
           <mat-panel-title>
             Pending Vote
           </mat-panel-title>
           <mat-panel-description>
-
+            {{
+              (pendingRequestId == 0)
+            ? "no active proposal"
+            : "vote on the proposal with id " + pendingRequestId
+            }}
           </mat-panel-description>
         </mat-expansion-panel-header>
+
+        <table mat-table [dataSource]="voteInformation">
+
+          <ng-container matColumnDef="key">
+            <th mat-header-cell *matHeaderCellDef> Key </th>
+            <td mat-cell *matCellDef="let element"> {{element.key}} </td>
+          </ng-container>
+
+          <ng-container matColumnDef="value">
+            <th mat-header-cell *matHeaderCellDef> Value </th>
+            <td mat-cell *matCellDef="let element"> {{element.value}} </td>
+          </ng-container>
+   
+          <tr mat-row *matRowDef="let row; columns: voteInformationColumns;"></tr>
+        </table>
+
       </mat-expansion-panel>
 
       <mat-expansion-panel>
@@ -105,33 +129,70 @@
           <mat-panel-title>
             Decision Parameters
           </mat-panel-title>
+          <mat-panel-description>
+            check and set how decisions are made
+          </mat-panel-description>
         </mat-expansion-panel-header>
 
         <table mat-table [dataSource]="decisionParameters">
 
           <ng-container matColumnDef="name">
             <th mat-header-cell *matHeaderCellDef> Name </th>
-            <td mat-cell *matCellDef="let element" >{{ actions[element.index] }}</td>
+            <td mat-cell *matCellDef="let element" >{{ ethersService.shareActions[element.index] }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="isDefault">
+            <th mat-header-cell *matHeaderCellDef> Uses Default </th>
+            <td mat-cell *matCellDef="let element" >{{ element.isDefault ? "yes" : "no" }}</td>
           </ng-container>
 
           <ng-container matColumnDef="decisionTime">
             <th mat-header-cell *matHeaderCellDef> Decision Time </th>
-            <td mat-cell *matCellDef="let element" >{{ element.decisionTime }}</td>
+            <td mat-cell *matCellDef="let element" >{{ formatSeconds(element.decisionTime) }}</td>
           </ng-container>
 
           <ng-container matColumnDef="executionTime">
             <th mat-header-cell *matHeaderCellDef> Execution Time </th>
-            <td mat-cell *matCellDef="let element" >{{ element.executionTime }}</td>
+            <td mat-cell *matCellDef="let element" >{{ formatSeconds(element.executionTime) }}</td>
           </ng-container>
 
           <ng-container matColumnDef="quorum">
             <th mat-header-cell *matHeaderCellDef> Quorum </th>
-            <td mat-cell *matCellDef="let element" >{{ element.quorum }}</td>
+            <td mat-cell *matCellDef="let element" >{{ element.quorumNumerator + '/' + element.quorumDenominator }}</td>
           </ng-container>
 
           <ng-container matColumnDef="majority">
             <th mat-header-cell *matHeaderCellDef> Majority </th>
-            <td mat-cell *matCellDef="let element" >{{ element.majority }}</td>
+            <td mat-cell *matCellDef="let element" >{{ element.majorityNumerator + '/' + element.majorityDenominator }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="actions">
+            <th mat-header-cell *matHeaderCellDef></th>
+            <td mat-cell *matCellDef="let element" class="horizontal">
+              <button
+                *ngIf="isValidAction()"
+                mat-raised-button color="accent"
+                (click)="openChangeDecisionParametersDialog(element)"
+              >
+                change
+              </button>
+              <button
+                *ngIf="element.index == 0; else setDefault"
+                mat-raised-button color="primary"
+                (click)="toggleShowDefault()"
+              >
+                {{ isHideDefault ? "show default" : "hide default" }}
+              </button>
+              <ng-template #setDefault>
+                <button
+                  *ngIf="!element.isDefault && isValidAction() && (element.index > 0)"
+                  mat-raised-button color="accent"
+                >
+                  set default
+                </button>
+                &nbsp; <!-- otherwise the styling of the table row is messed up -->
+              </ng-template>
+            </td>
           </ng-container>
 
           <tr mat-header-row *matHeaderRowDef="actionColumns"></tr>
@@ -155,6 +216,17 @@
           </mat-panel-title>
         </mat-expansion-panel-header>
       </mat-expansion-panel>
+
+      <mat-expansion-panel>
+        <mat-expansion-panel-header>
+          <mat-panel-title>
+            Pack Info
+          </mat-panel-title>
+          <mat-panel-description>
+            pack shareholders and traded tokens
+          </mat-panel-description>
+        </mat-expansion-panel-header>
+    </mat-expansion-panel>
     </mat-accordion>
   </ng-template>
   </div>

@@ -28,8 +28,16 @@ abstract contract ChangeDecisionParameters is Proposals {
         return doChangeDecisionParameters(uint16(voteType), decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
     }
 
+    function setDefaultDecisionParameters(ActionType voteType) external virtual override returns (uint256) {
+        return doSetDefaultDecisionParameters(uint16(voteType));
+    }
+
     function changeExternalProposalDecisionParameters(uint16 subType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) external virtual override returns (uint256) {
         return doChangeDecisionParameters(uint16(ActionType.EXTERNAL) + subType, decisionTime, executionTime, quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
+    }
+
+    function setExternalProposalDefaultDecisionParameters(uint16 subType) external returns (uint256) {
+        return doSetDefaultDecisionParameters(uint16(ActionType.EXTERNAL) + subType);
     }
 
     function doChangeDecisionParameters(uint16 voteType, uint64 decisionTime, uint64 executionTime, uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal returns (uint256) {
@@ -53,6 +61,15 @@ abstract contract ChangeDecisionParameters is Proposals {
         if ((quorumDenominator == 0) || (majorityDenominator == 0) || ((majorityNumerator << 1) < majorityDenominator)) {
             revert InvalidDecisionParameters(quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
         }
+    }
+
+    function doSetDefaultDecisionParameters(uint16 voteType) internal returns (uint256) {
+        uint256 id = getNextProposalId(); //lambdas are planned, but not supported yet by Solidity, so initialization has to happen outside the propose method
+
+        ExtendedDecisionParameters storage eDP = decisionParametersData[id];
+        eDP.voteType = voteType;
+
+        return propose(uint16(ActionType.CHANGE_DECISION_PARAMETERS), executeSetDecisionParameters, requestSetDecisionParameters);
     }
 
     function executeSetDecisionParameters(uint256 id, VoteResult voteResult) internal returns (bool) {

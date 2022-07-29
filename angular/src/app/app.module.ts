@@ -19,6 +19,7 @@ import { MintComponent } from './page/seedtokens/mint/mint.component';
 import { ChangeOwnerComponent } from './page/seedtokens/change-owner/change-owner.component';
 import { HttpClientModule } from '@angular/common/http';
 import { NewShareComponent } from './page/shares/new-share/new-share.component';
+import { ChangeDecisionParametersComponent } from './page/shares/change-decision-parameters/change-decision-parameters.component';
 
 @NgModule({
   declarations: [
@@ -30,7 +31,8 @@ import { NewShareComponent } from './page/shares/new-share/new-share.component';
     ProgressSpinnerOverlayComponent,
     MintComponent,
     ChangeOwnerComponent,
-    NewShareComponent
+    NewShareComponent,
+    ChangeDecisionParametersComponent
   ],
   imports: [
     BrowserModule,
