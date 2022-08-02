@@ -62,20 +62,9 @@
           </mat-panel-title>
         </mat-expansion-panel-header>
 
-        <table mat-table [dataSource]="summary">
-
-          <ng-container matColumnDef="key">
-            <th mat-header-cell *matHeaderCellDef> Key </th>
-            <td mat-cell *matCellDef="let element"> {{element.key}} </td>
-          </ng-container>
-
-          <ng-container matColumnDef="value">
-            <th mat-header-cell *matHeaderCellDef> Value </th>
-            <td mat-cell *matCellDef="let element"> {{element.value}} </td>
-          </ng-container>
-   
-          <tr mat-row *matRowDef="let row; columns: summaryColumns;"></tr>
-        </table>
+        <app-summary
+          [summary]="summary"
+        ></app-summary>
       </mat-expansion-panel>
 
       <mat-expansion-panel
@@ -95,22 +84,41 @@
             }}
           </mat-panel-description>
         </mat-expansion-panel-header>
+        <mat-card *ngIf="vote">
+          <mat-card-title>Vote Progress</mat-card-title>
 
-        <table mat-table [dataSource]="voteInformation">
+          <app-vote-progress-ongoing
+            *ngIf="(vote.result == 1) && (vote.stage == 0)"
+            [userAddress]="userAddress"
+            [share]="selected"
+            [vote]="vote"
+            [contract]="getSelectedContract()"
+            [pendingRequestId]="pendingRequestId"
+            [onDialogClose]="refreshSelected()"
+            [formatSeconds]="formatSeconds"
+          ></app-vote-progress-ongoing>
+        </mat-card>
 
-          <ng-container matColumnDef="key">
-            <th mat-header-cell *matHeaderCellDef> Key </th>
-            <td mat-cell *matCellDef="let element"> {{element.key}} </td>
-          </ng-container>
+        <mat-card *ngIf="vote">
+          <mat-card-title>Vote Count</mat-card-title>
 
-          <ng-container matColumnDef="value">
-            <th mat-header-cell *matHeaderCellDef> Value </th>
-            <td mat-cell *matCellDef="let element"> {{element.value}} </td>
-          </ng-container>
-   
-          <tr mat-row *matRowDef="let row; columns: voteInformationColumns;"></tr>
-        </table>
+          <app-vote-count-ongoing
+            *ngIf="(vote.result == 1) && (vote.stage == 0)"
+            [vote]="vote"
+          ></app-vote-count-ongoing>
+        </mat-card>
 
+        <mat-card *ngIf="vote">
+          <mat-card-title>Vote Details</mat-card-title>
+
+          <app-vote-details-change-decision-parameters
+            *ngIf="vote.voteType == 2"
+            [vote]="vote"
+            [contract]="getSelectedContract()"
+            [pendingRequestId]="pendingRequestId"
+            [formatSeconds]="formatSeconds"
+          ></app-vote-details-change-decision-parameters>
+        </mat-card>
       </mat-expansion-panel>
 
       <mat-expansion-panel>
@@ -134,71 +142,12 @@
           </mat-panel-description>
         </mat-expansion-panel-header>
 
-        <table mat-table [dataSource]="decisionParameters">
-
-          <ng-container matColumnDef="name">
-            <th mat-header-cell *matHeaderCellDef> Name </th>
-            <td mat-cell *matCellDef="let element" >{{ ethersService.shareActions[element.index] }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="isDefault">
-            <th mat-header-cell *matHeaderCellDef> Uses Default </th>
-            <td mat-cell *matCellDef="let element" >{{ element.isDefault ? "yes" : "no" }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="decisionTime">
-            <th mat-header-cell *matHeaderCellDef> Decision Time </th>
-            <td mat-cell *matCellDef="let element" >{{ formatSeconds(element.decisionTime) }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="executionTime">
-            <th mat-header-cell *matHeaderCellDef> Execution Time </th>
-            <td mat-cell *matCellDef="let element" >{{ formatSeconds(element.executionTime) }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="quorum">
-            <th mat-header-cell *matHeaderCellDef> Quorum </th>
-            <td mat-cell *matCellDef="let element" >{{ element.quorumNumerator + '/' + element.quorumDenominator }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="majority">
-            <th mat-header-cell *matHeaderCellDef> Majority </th>
-            <td mat-cell *matCellDef="let element" >{{ element.majorityNumerator + '/' + element.majorityDenominator }}</td>
-          </ng-container>
-
-          <ng-container matColumnDef="actions">
-            <th mat-header-cell *matHeaderCellDef></th>
-            <td mat-cell *matCellDef="let element" class="horizontal">
-              <button
-                *ngIf="isValidAction()"
-                mat-raised-button color="accent"
-                (click)="openChangeDecisionParametersDialog(element)"
-              >
-                change
-              </button>
-              <button
-                *ngIf="element.index == 0; else setDefault"
-                mat-raised-button color="primary"
-                (click)="toggleShowDefault()"
-              >
-                {{ isHideDefault ? "show default" : "hide default" }}
-              </button>
-              <ng-template #setDefault>
-                <button
-                  *ngIf="!element.isDefault && isValidAction() && (element.index > 0)"
-                  mat-raised-button color="accent"
-                >
-                  set default
-                </button>
-                &nbsp; <!-- otherwise the styling of the table row is messed up -->
-              </ng-template>
-            </td>
-          </ng-container>
-
-          <tr mat-header-row *matHeaderRowDef="actionColumns"></tr>
-          <tr mat-row *matRowDef="let row; columns: actionColumns;"></tr>
-        </table>
-
+        <app-decision-parameters
+          [decisionParameters]="decisionParameters"
+          [isValidAction]="isValidAction()"
+          [onDialogClose]="refreshSelected()"
+          [formatSeconds]="formatSeconds"
+        ></app-decision-parameters>
       </mat-expansion-panel>
 
       <mat-expansion-panel>
@@ -232,4 +181,3 @@
   </div>
 </mat-drawer-content>
 </mat-drawer-container>
-

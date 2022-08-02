@@ -77,17 +77,20 @@ abstract contract Proposals is IShare, ERC20 {
         return Voting.getNumberOfVotes(getProposal(id));
     }
 
-    function getDetailedVoteResult(uint256 id) external view virtual override returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256) {
+    function getDetailedVoteResult(uint256 id) external view virtual override returns (VoteResult, uint256, uint256, uint256, uint256) {
         VoteParameters storage vP = getProposal(id);
-        DecisionParameters storage dP = vP.decisionParameters;
         VoteResult result = Voting.getVoteResult(vP);
         return ((result == VoteResult.EXPIRED) || (result == VoteResult.PARTIAL_VOTE_COUNT))
-             ? (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, 0, 0, 0, 0)
-             : (result, dP.quorumNumerator, dP.quorumDenominator, dP.majorityNumerator, dP.majorityDenominator, vP.inFavor, vP.against, vP.abstain, vP.noVote);
+             ? (result, 0, 0, 0, 0)
+             : (result, vP.inFavor, vP.against, vP.abstain, vP.noVote);
     }
 
     function getVoteResult(uint256 id) external view virtual override returns (VoteResult) {
         return Voting.getVoteResult(getProposal(id));
+    }
+
+    function getVoteChoice(uint256 id) external view virtual override returns (VoteChoice) {
+        return Voting.getVoteChoice(getProposal(id));
     }
 
     function getVoteType(uint256 id) internal view returns (uint16) {

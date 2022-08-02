@@ -2,7 +2,7 @@ import { Component, Inject, OnInit } from '@angular/core';
 import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 import { ethers } from "ethers";
 import { EthersService } from 'src/app/services/ethers.service';
-import { DecisionParameters } from '../shares.component';
+import { DecisionParameters } from '../../shares.component';
 
 @Component({
   selector: 'app-change-decision-parameters',

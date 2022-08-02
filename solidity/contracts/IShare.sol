@@ -110,8 +110,9 @@ interface IShare {
     function getProposalDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);
     function getProposalDecisionTimes(uint256 id) external view returns (uint64, uint64, uint64);
     function getNumberOfVotes(uint256 id) external view returns (uint256);
-    function getDetailedVoteResult(uint256 id) external view returns (VoteResult, uint32, uint32, uint32, uint32, uint256, uint256, uint256, uint256);
+    function getDetailedVoteResult(uint256 id) external view returns (VoteResult, uint256, uint256, uint256, uint256);
     function getVoteResult(uint256 id) external view returns (VoteResult);
+    function getVoteChoice(uint256 id) external view returns (VoteChoice);
 
     function getProposedOwner(uint256 id) external view returns (address);
     function getProposedDecisionParameters(uint256 id) external view returns (uint16, uint64, uint64, uint32, uint32, uint32, uint32);

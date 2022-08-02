@@ -1,0 +1,40 @@
+.vote-progress-container {
+  display: grid;
+  grid-template-rows: [start] 100px [middle] auto [end];
+  grid-template-columns: [start] 100px [voting-actions] 100px [middle] auto [end];
+  column-gap: 16px;
+  row-gap: 16px;
+  margin: 16px;
+}
+
+.vote-progress-spinner {
+  grid-column-start: start;
+  grid-column-end: voting-actions;
+  grid-row-start: start;
+  grid-row-end: middle;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.vote-progress-actions {
+  grid-column-start: voting-actions;
+  grid-column-end: middle;
+  grid-row-start: start;
+  grid-row-end: end;
+}
+
+.vote-progress-info {
+  grid-column-start: middle;
+  grid-column-end: end;
+  grid-row-start: start;
+  grid-row-end: end;
+}
+
+.vote-progress-result {
+  grid-column-start: start;
+  grid-column-end: voting-actions;
+  grid-row-start: middle;
+  grid-row-end: end;
+  text-align: center;
+}

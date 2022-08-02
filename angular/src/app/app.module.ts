@@ -18,8 +18,13 @@ import { ProgressSpinnerOverlayComponent } from './page/progress-spinner-overlay
 import { MintComponent } from './page/seedtokens/mint/mint.component';
 import { ChangeOwnerComponent } from './page/seedtokens/change-owner/change-owner.component';
 import { HttpClientModule } from '@angular/common/http';
-import { NewShareComponent } from './page/shares/new-share/new-share.component';
-import { ChangeDecisionParametersComponent } from './page/shares/change-decision-parameters/change-decision-parameters.component';
+import { NewShareComponent } from './page/shares/dialogs/new-share/new-share.component';
+import { ChangeDecisionParametersComponent } from './page/shares/dialogs/change-decision-parameters/change-decision-parameters.component';
+import { VoteProgressOngoingComponent } from './page/shares/voting/vote-progress-ongoing/vote-progress-ongoing.component';
+import { VoteCountOngoingComponent } from './page/shares/voting/vote-count-ongoing/vote-count-ongoing.component';
+import { SummaryComponent } from './page/shares/summary/summary.component';
+import { DecisionParametersComponent } from './page/shares/decision-parameters/decision-parameters.component';
+import { VoteDetailsChangeDecisionParametersComponent } from './page/shares/voting/vote-details-change-decision-parameters/vote-details-change-decision-parameters.component';
 
 @NgModule({
   declarations: [
@@ -32,7 +37,12 @@ import { ChangeDecisionParametersComponent } from './page/shares/change-decision
     MintComponent,
     ChangeOwnerComponent,
     NewShareComponent,
-    ChangeDecisionParametersComponent
+    ChangeDecisionParametersComponent,
+    VoteProgressOngoingComponent,
+    VoteCountOngoingComponent,
+    SummaryComponent,
+    DecisionParametersComponent,
+    VoteDetailsChangeDecisionParametersComponent
   ],
   imports: [
     BrowserModule,

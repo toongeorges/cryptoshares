@@ -1,0 +1,46 @@
+<mat-card-subtitle>{{ ethersService.shareActions[vote.voteType] }}</mat-card-subtitle>
+<table class="mat-table" *ngIf="proposal">
+    <tr class="mat-header-row">
+        <td class="mat-cell label-column">Type</td>
+        <td *ngIf="proposal.type < ethersService.shareActions.length" class="mat-cell">
+            {{ ethersService.shareActions[proposal.type] }}
+        </td>
+        <td *ngIf="proposal.type >= ethersService.shareActions.length" class="mat-cell">
+            External Proposal, subtype: {{ proposal.subType }}
+        </td>
+    </tr>
+    <tr class="mat-row">
+        <td class="mat-cell label-column">Decision Time</td>
+        <td class="mat-cell">
+             {{ formatSeconds(proposal.decisionTime) }}
+        </td>
+    </tr>
+    <tr class="mat-row">
+        <td class="mat-cell label-column">Execution Time</td>
+        <td class="mat-cell">
+             {{ formatSeconds(proposal.executionTime) }}
+        </td>
+    </tr>
+    <tr class="mat-row">
+        <td class="mat-cell label-column">Required Quorum</td>
+        <td class="mat-cell">
+        <mat-progress-bar
+            mode="determinate"
+            [value]="100*proposal.quorumNumerator/proposal.quorumDenominator"
+            color="accent"
+            [matTooltip]="proposal.quorumNumerator + '/' + proposal.quorumDenominator"
+        ></mat-progress-bar>
+        </td>
+    </tr>
+    <tr class="mat-row">
+        <td class="mat-cell label-column">Required Majority</td>
+        <td class="mat-cell">
+        <mat-progress-bar
+            mode="determinate"
+            [value]="100*proposal.majorityNumerator/proposal.majorityDenominator"
+            color="accent"
+            [matTooltip]="proposal.majorityNumerator + '/' + proposal.majorityDenominator"
+        ></mat-progress-bar>
+        </td>
+    </tr>
+</table>

@@ -94,6 +94,10 @@ library Voting {
              : result;
     }
 
+    function getVoteChoice(VoteParameters storage vP) internal view returns (VoteChoice) {
+        return vP.votes[vP.voteIndex[msg.sender]].choice;
+    }
+
     function transferVotes(VoteParameters storage vP, address from, address to, uint256 transferAmount) internal {
         mapping(address => uint256) storage spentVotes = vP.spentVotes;
         uint256 senderSpent = spentVotes[from];

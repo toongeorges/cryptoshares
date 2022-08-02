@@ -58,7 +58,13 @@ abstract contract ChangeDecisionParameters is Proposals {
     }
 
     function verifyDecisionParameters(uint32 quorumNumerator, uint32 quorumDenominator, uint32 majorityNumerator, uint32 majorityDenominator) internal pure {
-        if ((quorumDenominator == 0) || (majorityDenominator == 0) || ((majorityNumerator << 1) < majorityDenominator)) {
+        if (
+            (quorumDenominator == 0)
+         || (majorityDenominator == 0)
+         || ((majorityNumerator << 1) < majorityDenominator)
+         || (quorumNumerator > quorumDenominator)
+         || (majorityNumerator > majorityDenominator)
+        ) {
             revert InvalidDecisionParameters(quorumNumerator, quorumDenominator, majorityNumerator, majorityDenominator);
         }
     }

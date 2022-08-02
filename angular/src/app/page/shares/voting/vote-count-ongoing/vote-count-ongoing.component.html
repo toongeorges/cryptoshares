@@ -1,0 +1,28 @@
+<table class="mat-table">
+    <tr class="mat-row">
+        <td class="mat-cell label-column">Required Quorum</td>
+        <td class="mat-cell">
+        <mat-progress-bar
+            mode="determinate"
+            [value]="100*vote.quorumNumerator/vote.quorumDenominator"
+            color="accent"
+            [matTooltip]="vote.quorumNumerator + '/' + vote.quorumDenominator"
+        ></mat-progress-bar>
+        </td>
+    </tr>
+    <tr class="mat-row">
+        <td class="mat-cell label-column">Required Majority</td>
+        <td class="mat-cell">
+        <mat-progress-bar
+            mode="determinate"
+            [value]="100*vote.majorityNumerator/vote.majorityDenominator"
+            color="accent"
+            [matTooltip]="vote.majorityNumerator + '/' + vote.majorityDenominator"
+        ></mat-progress-bar>
+        </td>
+    </tr>
+    <tr class="mat-row">
+        <td class="mat-cell label-column"># Votes</td>
+        <td class="mat-cell">{{ vote.numberOfVotes }}</td>
+    </tr>
+</table>

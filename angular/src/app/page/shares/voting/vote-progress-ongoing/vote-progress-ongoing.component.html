@@ -1,0 +1,115 @@
+<div class="vote-progress-container">
+    <div class="vote-progress-spinner">
+        <mat-spinner color="accent" mode="determinate" [value]="vote.decisionTimeProgress"></mat-spinner>
+    </div>
+    <div class="vote-progress-spinner">
+        {{ vote.decisionTimeProgress | number:'1.2-2' }}%
+    </div>
+    <div class="vote-progress-actions vertical">
+        <button
+        *ngIf="vote.choice == 1"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        matBadge="done"
+        (click)="castVote(1)"
+        >
+        Approve
+        </button>
+        <button
+        *ngIf="vote.choice != 1"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        (click)="castVote(1)"
+        >
+        Approve
+        </button>
+
+        <button
+        *ngIf="vote.choice == 2"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        matBadge="done"
+        (click)="castVote(2)"
+        >
+        Reject
+        </button>
+        <button
+        *ngIf="vote.choice != 2"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        (click)="castVote(2)"
+        >
+        Reject
+        </button>
+
+        <button
+        *ngIf="vote.choice == 3"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        matBadge="done"
+        (click)="castVote(3)"
+        >
+        Abstain
+        </button>
+        <button
+        *ngIf="vote.choice != 3"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        (click)="castVote(3)"
+        >
+        Abstain
+        </button>
+
+        <button
+        *ngIf="vote.choice == 0"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        matBadge="done"
+        (click)="castVote(0)"
+        >
+        No Vote
+        </button>
+        <button
+        *ngIf="vote.choice != 0"
+        mat-raised-button color="accent"
+        [disabled]="ethersService.isZero(share.balance)"
+        (click)="castVote(0)"
+        >
+        No Vote
+        </button>
+    </div>
+    <div class="vote-progress-info">
+        <table class="mat-table">
+        <tr class="mat-header-row">
+            <th class="mat-header-cell">Type</th>
+            <th class="mat-header-cell">Timestamp</th>
+            <th class="mat-header-cell">Remaining</th>
+        </tr>
+        <tr class="mat-row">
+            <td class="mat-cell">Start Time</td>
+            <td class="mat-cell">{{ toDate(vote.start) | date:'d MMM y HH:mm:ss O' }}</td>
+            <td class="mat-cell">&nbsp;</td>
+        </tr>
+        <tr class="mat-row">
+            <td class="mat-cell">Voting End Time</td>
+            <td class="mat-cell">{{ toDate(vote.decisionEnd) | date:'d MMM y HH:mm:ss O' }}</td>
+            <td class="mat-cell">{{ formatSeconds(vote.decisionRemaining) }}</td>
+        </tr>
+        <tr class="mat-row">
+            <td class="mat-cell">Execution End Time</td>
+            <td class="mat-cell">{{ toDate(vote.executionEnd) | date:'d MMM y HH:mm:ss O' }}</td>
+            <td class="mat-cell">{{ formatSeconds(vote.executionRemaining) }}</td>
+        </tr>
+        </table>
+    </div>
+    <div class="vote-progress-result vertical">
+        Voting in Progress
+        <button
+        *ngIf="userAddress == share.owner"
+        mat-raised-button color="accent"
+        (click)="withdrawProposal()"
+        >
+        withdraw
+        </button>
+    </div>
+</div>

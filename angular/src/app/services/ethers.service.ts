@@ -22,6 +22,8 @@ export class EthersService {
   public shareFactoryAddress: string = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0';
   public shareFactory: ethers.Contract;
 
+  public zero = ethers.BigNumber.from('0');
+
   public shareActions = [
     'Default',
     'Change Owner',
@@ -39,6 +41,24 @@ export class EthersService {
     'External Proposal Default'
   ];
 
+  public voteResults = [
+    'Non Existing Proposal',
+    'Pending Vote',
+    'Partial Vote Count',
+    'Partial Execution',
+    'Approved',
+    'Rejected',
+    'Expired',
+    'Withdrawn',
+    'No Outstanding Shares'
+  ]
+
+  public voteStage = [
+    'Voting in Progress',
+    'Execution in Progress',
+    'Expired'
+  ]
+
   constructor(private dialog: MatDialog) {
     this.version = ethers.version;
     this.provider = new ethers.providers.Web3Provider((window as any).ethereum);
@@ -47,7 +67,7 @@ export class EthersService {
     this.shareFactory = new ethers.Contract(this.shareFactoryAddress, (shareFactoryData as any).default.abi, this.provider);
   }
 
-  showProgressSpinnerUntilExecuted(promise: Promise<any>, onDialogClose: any) {
+  showProgressSpinnerUntilExecuted(promise: Promise<any>, onDialogClose: () => void) {
     let progressSpinnerRef: MatDialogRef<ProgressSpinnerOverlayComponent> = this.dialog.open(ProgressSpinnerOverlayComponent, {
       panelClass: 'transparent',
       disableClose: true
@@ -76,5 +96,9 @@ export class EthersService {
 
   connect(contract: ethers.Contract) {
     return contract.connect(this.provider.getSigner());
+  }
+
+  isZero(number: ethers.BigNumber): boolean {
+    return number.eq(this.zero);
   }
 }
